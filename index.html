@@ -337,6 +337,7 @@ let curCat='すべて';
 let received=0;                // 会計中の預り金
 let discount=0;                // 会計中の値引き（円・会計全体）
 let special={};                // id -> 特価(単価)。未設定は定価
+let clientId=null;             // 会計ごとの受付ID（冪等キー・再送信の二重登録を防ぐ）
 let RETURN=false;              // 返品モード
 const yen=n=>'¥'+Number(n||0).toLocaleString('ja-JP');
 const prod=id=>PRODUCTS.find(x=>x.id===id);
@@ -406,6 +407,7 @@ document.getElementById('modeBtn').onclick=function(){
 /* ===== カート ===== */
 function addToCart(id){
   if(!RETURN && availOf(id)<=0){ const p=prod(id); toast('在庫が足りません（残り'+(p?p.stock:0)+'）'); return; }
+  if(!clientId) clientId='C'+Date.now()+'-'+Math.floor(Math.random()*1e6); // このカート＝1件の受付ID
   cart[id]=(cart[id]||0)+1; renderCart();
 }
 function setQty(id,d){
@@ -415,7 +417,7 @@ function setQty(id,d){
   renderCart();
 }
 function delItem(id){ delete cart[id]; delete special[id]; renderCart(); }
-function clearCart(){ cart={}; special={}; renderCart(); }
+function clearCart(){ cart={}; special={}; clientId=null; renderCart(); }
 
 /* 会計/返品後に在庫表示を最新化 */
 async function refreshProducts(){
@@ -551,21 +553,22 @@ document.getElementById('confirmBtn').onclick=async function(){
       if(!window.confirm('返金 '+yen(amt)+' を記録します。よろしいですか？')){
         btn.disabled=false; btn.textContent=labelBase; return;
       }
-      const res=await jsonp('refund',{items:JSON.stringify(items)});
+      const res=await jsonp('refund',{items:JSON.stringify(items),clientId:clientId||''});
       if(!res.ok)throw new Error(res.error||'返品に失敗しました');
       closePay(); clearCart(); refreshSummary(); refreshProducts();
-      toast('返品完了<br><span class="big">返金 '+yen(res.refund)+'</span>');
+      toast((res.duplicate?'記録済みの返品です<br>':'返品完了<br>')+'<span class="big">返金 '+yen(res.refund)+'</span>');
     }else{
       const sub=cartTotal();
       const disc=Math.min(discount,sub);
       const total=sub-disc;
       if(received>0 && received<total){ btn.disabled=false; btn.textContent=labelBase; return; }
-      const res=await jsonp('checkout',{items:JSON.stringify(items),received:received||total,discount:disc});
+      const res=await jsonp('checkout',{items:JSON.stringify(items),received:received||total,discount:disc,clientId:clientId||''});
       if(!res.ok)throw new Error(res.error||'会計に失敗しました');
       closePay(); clearCart(); refreshSummary(); refreshProducts();
       const chg=res.change||0;
       const dmsg=res.discount>0?('（値引 '+yen(res.discount)+'）'):'';
-      toast('会計完了 '+yen(res.total)+dmsg+'<br><span class="big">お釣り '+yen(chg)+'</span>');
+      const head=res.duplicate?'記録済みの会計です ':'会計完了 ';
+      toast(head+yen(res.total)+dmsg+'<br><span class="big">お釣り '+yen(chg)+'</span>');
     }
   }catch(e){
     toast('⚠ '+e.message);
