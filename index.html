@@ -97,6 +97,12 @@
     background:var(--paper); color:var(--ink); border:1px solid var(--line); line-height:1;}
   .qty .n{min-width:34px; text-align:center; font-size:16px; font-weight:800; font-variant-numeric:tabular-nums;}
   .qty .del{color:var(--danger); font-size:15px;}
+  .item .inm .spb{font-size:10px; font-weight:900; color:#fff; background:var(--danger);
+    padding:1px 7px; border-radius:99px; margin-left:5px; vertical-align:middle;}
+  .item .isub .spp{color:var(--danger); font-weight:800;}
+  .qty .spbtn{width:auto; padding:0 9px; font-size:12px; font-weight:800;
+    color:var(--proc); border-color:var(--proc);}
+  .peName{font-size:19px; font-weight:800; text-align:center; margin:2px 0 10px;}
 
   .cart-foot{border-top:2px solid var(--ink); padding:12px 16px 16px; background:var(--paper);}
   .sumline{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px;}
@@ -278,6 +284,30 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- 特価（1品ごとの見切り値引き）オーバーレイ -->
+<div class="overlay" id="priceOverlay">
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="peName" id="peName"></div>
+    <div class="payrow sub"><span class="lb">定価</span><span class="v" id="peList">¥0</span></div>
+    <div class="payrow total"><span class="lb">特価（単価）</span><span class="v" id="peVal">¥0</span></div>
+    <div class="quick">
+      <button data-pe="list">定価に戻す</button>
+      <button data-pe="-50">−¥50</button>
+      <button data-pe="-100">−¥100</button>
+    </div>
+    <div class="keys" id="peKeys">
+      <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+      <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+      <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+      <button class="util" data-k="00">00</button><button data-k="0">0</button>
+      <button class="util" data-k="back">←</button>
+    </div>
+    <button class="confirm" id="peConfirm">この特価にする</button>
+    <button class="cancel" id="peCancel">もどる</button>
+  </div>
+</div>
+
 <script>
 /* ===== 設定：デプロイした GAS の /exec URL を貼ってください ===== */
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbzyyC1uO1KMSwuYui11FBT_ilMaFTQ-zs-Fb0k37YXQ63Ftk6FJJjLsqKCv3VV911eIiQ/exec';
@@ -305,10 +335,13 @@ let PRODUCTS=[];               // {id,name,category,price,stock}
 let cart={};                   // id -> qty（会計 or 返品の作業カート）
 let curCat='すべて';
 let received=0;                // 会計中の預り金
-let discount=0;                // 会計中の値引き（円）
+let discount=0;                // 会計中の値引き（円・会計全体）
+let special={};                // id -> 特価(単価)。未設定は定価
 let RETURN=false;              // 返品モード
 const yen=n=>'¥'+Number(n||0).toLocaleString('ja-JP');
 const prod=id=>PRODUCTS.find(x=>x.id===id);
+// 実効単価（特価があれば特価、無ければ定価）。返品時は常に定価。
+function unitOf(id){const p=prod(id); if(!p)return 0; if(!RETURN && special[id]!=null)return special[id]; return p.price;}
 // 在庫追跡商品のこれ以上追加できる残数（無制限は Infinity）
 function availOf(id){const p=prod(id); if(!p||p.stock==null)return Infinity; return Math.max(0,p.stock-(cart[id]||0));}
 
@@ -378,11 +411,11 @@ function addToCart(id){
 function setQty(id,d){
   if(d>0 && !RETURN && availOf(id)<=0){ const p=prod(id); toast('在庫が足りません（残り'+(p?p.stock:0)+'）'); return; }
   cart[id]=(cart[id]||0)+d;
-  if(cart[id]<=0) delete cart[id];
+  if(cart[id]<=0){ delete cart[id]; delete special[id]; }
   renderCart();
 }
-function delItem(id){ delete cart[id]; renderCart(); }
-function clearCart(){ cart={}; renderCart(); }
+function delItem(id){ delete cart[id]; delete special[id]; renderCart(); }
+function clearCart(){ cart={}; special={}; renderCart(); }
 
 /* 会計/返品後に在庫表示を最新化 */
 async function refreshProducts(){
@@ -390,9 +423,7 @@ async function refreshProducts(){
 }
 
 function cartTotal(){
-  return Object.keys(cart).reduce(function(s,id){
-    const p=PRODUCTS.find(x=>x.id===id); return s+(p?p.price*cart[id]:0);
-  },0);
+  return Object.keys(cart).reduce(function(s,id){ return s+unitOf(id)*cart[id]; },0);
 }
 
 function renderCart(){
@@ -404,13 +435,18 @@ function renderCart(){
     box.innerHTML='';
     ids.forEach(function(id){
       const p=PRODUCTS.find(x=>x.id===id); if(!p)return;
-      const q=cart[id], sub=p.price*q;
+      const u=unitOf(id), q=cart[id], sub=u*q;
+      const hasSp=(!RETURN && special[id]!=null);
+      const priceLine=hasSp
+        ? '<s>'+yen(p.price)+'</s> <b class="spp">'+yen(u)+'</b> × '+q
+        : yen(p.price)+' × '+q;
       const el=document.createElement('div'); el.className='item';
       el.innerHTML=
-        '<span class="inm">'+esc(p.name)+'</span>'
+        '<span class="inm">'+esc(p.name)+(hasSp?' <span class="spb">特価</span>':'')+'</span>'
        +'<span class="isum">'+yen(sub)+'</span>'
-       +'<span class="isub">'+yen(p.price)+' × '+q+'</span>'
+       +'<span class="isub">'+priceLine+'</span>'
        +'<span class="qty">'
+       +(RETURN?'':'  <button data-a="sp" class="spbtn">特価</button>')
        +'  <button data-a="del" title="削除" class="del">✕</button>'
        +'  <button data-a="minus">−</button>'
        +'  <span class="n">'+q+'</span>'
@@ -419,6 +455,7 @@ function renderCart(){
       el.querySelector('[data-a=minus]').onclick=()=>setQty(id,-1);
       el.querySelector('[data-a=plus]').onclick=()=>setQty(id,1);
       el.querySelector('[data-a=del]').onclick=()=>delItem(id);
+      const spBtn=el.querySelector('[data-a=sp]'); if(spBtn) spBtn.onclick=()=>openPrice(id);
       box.appendChild(el);
     });
   }
@@ -504,12 +541,16 @@ overlay.querySelector('.keys').addEventListener('click',function(e){
 /* ===== 会計確定 ===== */
 document.getElementById('confirmBtn').onclick=async function(){
   const btn=this;
-  const items=Object.keys(cart).map(id=>({id:id,qty:cart[id]}));
+  const items=Object.keys(cart).map(id=>({id:id,qty:cart[id],price:unitOf(id)}));
   if(!items.length)return;
   const labelBase=RETURN?'返品を確定':'会計を確定';
   btn.disabled=true; btn.textContent='送信中…';
   try{
     if(RETURN){
+      const amt=cartTotal();
+      if(!window.confirm('返金 '+yen(amt)+' を記録します。よろしいですか？')){
+        btn.disabled=false; btn.textContent=labelBase; return;
+      }
       const res=await jsonp('refund',{items:JSON.stringify(items)});
       if(!res.ok)throw new Error(res.error||'返品に失敗しました');
       closePay(); clearCart(); refreshSummary(); refreshProducts();
@@ -532,6 +573,42 @@ document.getElementById('confirmBtn').onclick=async function(){
     btn.disabled=false; btn.textContent=labelBase;
   }
 };
+
+/* ===== 特価（1品ごとの見切り）エディタ ===== */
+const priceOverlay=document.getElementById('priceOverlay');
+let peId=null, peVal=0;
+function openPrice(id){
+  const p=prod(id); if(!p)return;
+  peId=id; peVal=unitOf(id);
+  document.getElementById('peName').textContent=p.name;
+  document.getElementById('peList').textContent=yen(p.price);
+  updatePE();
+  priceOverlay.classList.add('on');
+}
+function closePrice(){ priceOverlay.classList.remove('on'); peId=null; }
+function updatePE(){ document.getElementById('peVal').textContent=yen(peVal); }
+
+priceOverlay.querySelector('.quick').addEventListener('click',function(e){
+  const b=e.target.closest('button'); if(!b||peId==null)return;
+  const p=prod(peId); const list=p?p.price:0;
+  if(b.dataset.pe==='list') peVal=list;
+  else peVal=Math.max(0, list+Number(b.dataset.pe));   // −¥50 / −¥100（定価から）
+  updatePE();
+});
+priceOverlay.querySelector('.keys').addEventListener('click',function(e){
+  const b=e.target.closest('button'); if(!b)return;
+  const k=b.dataset.k;
+  if(k==='back') peVal=Math.floor(peVal/10);
+  else{ peVal=Number(String(peVal)+k); if(peVal>9999999)peVal=9999999; }
+  updatePE();
+});
+document.getElementById('peConfirm').onclick=function(){
+  const p=prod(peId); if(!p){ closePrice(); return; }
+  let v=Math.floor(peVal); if(v<0)v=0; if(v>p.price)v=p.price;   // 見切り＝値下げのみ（定価超は不可）
+  if(v>=p.price) delete special[peId]; else special[peId]=v;
+  closePrice(); renderCart();
+};
+document.getElementById('peCancel').onclick=closePrice;
 
 /* ===== 本日の売上 ===== */
 async function refreshSummary(){
