@@ -149,6 +149,43 @@
     text-align:center; display:none;}
   .banner.on{display:block;}
 
+  /* ---- 在庫バッジ ---- */
+  .pcard{position:relative;}
+  .pcard .stk{display:block; margin-top:4px; font-size:12px; font-weight:800;
+    color:var(--sub); font-variant-numeric:tabular-nums;}
+  .pcard .stk.low{color:var(--danger);}
+  .pcard.sold{opacity:.5;}
+  .pcard .soldb{position:absolute; top:8px; right:8px; background:var(--danger); color:#fff;
+    font-size:11px; font-weight:900; padding:3px 9px; border-radius:99px; letter-spacing:.05em;}
+
+  /* ---- 返品モード ---- */
+  .modebtn{background:#fff; color:var(--leaf-d); border:2px solid #fff; border-radius:10px;
+    padding:8px 16px; font-weight:800; font-size:14px; line-height:1;}
+  .modebtn:active{transform:translateY(1px);}
+  body.ret .modebtn{background:var(--danger); color:#fff; border-color:#fff;}
+  body.ret header{background:var(--danger);}
+  .retband{display:none;}
+  body.ret .retband{display:block; background:#8f2f1f; color:#fff; text-align:center;
+    font-weight:800; padding:7px; font-size:13px; letter-spacing:.14em;}
+  body.ret .pay{background:var(--danger);}
+
+  /* ---- 割引 ---- */
+  .discbtns{display:flex; gap:8px; margin:4px 0 8px;}
+  .discbtns button{flex:1; padding:12px 0; border-radius:11px; font-size:14px; font-weight:800;
+    background:#fff; border:2px solid var(--line); color:var(--ink);}
+  .discbtns button.on{background:var(--proc); border-color:var(--proc); color:#fff;}
+  .payrow.sub .lb, .payrow.sub .v{color:var(--sub);}
+  .payrow.sub .v{font-size:22px;}
+  .payrow.disc .v{color:var(--danger);}
+  .payrow.refundrow .v{font-size:40px; color:var(--danger);}
+  body.ret .confirm{background:var(--danger);}
+  /* 返品モードでは会計用UIを隠す */
+  .payrow.refundrow{display:none;}
+  body.ret .payrow.refundrow{display:flex;}
+  body.ret .payrow.sub, body.ret .payrow.disc, body.ret .discbtns,
+  body.ret .payrow.total, body.ret .payrow.recv, body.ret .payrow.change,
+  body.ret .quick, body.ret .keys{display:none;}
+
   /* スマホ */
   @media(max-width:760px){
     main{grid-template-columns:1fr; grid-template-rows:1fr auto;}
@@ -172,8 +209,10 @@
     <span class="amt" id="todayAmt">¥—</span>
     <span class="ct" id="todayCt"></span>
   </div>
+  <button class="modebtn" id="modeBtn">返品</button>
 </header>
 
+<div class="retband">● 返品モード ─ 商品をタップして返品分を選び、「返品する」で確定します</div>
 <div class="banner" id="banner"></div>
 
 <main>
@@ -188,7 +227,7 @@
   </section>
 
   <aside class="cart">
-    <h2>カート</h2>
+    <h2 id="cartTitle">カート</h2>
     <div class="items" id="items">
       <div class="empty"><b>商品をタップしてください</b>選ぶとここに入ります</div>
     </div>
@@ -207,6 +246,15 @@
 <div class="overlay" id="overlay">
   <div class="sheet">
     <div class="grab"></div>
+    <div class="payrow refundrow"><span class="lb">返金額</span><span class="v" id="ovRefund">¥0</span></div>
+    <div class="payrow sub"><span class="lb">小計</span><span class="v" id="ovSub">¥0</span></div>
+    <div class="payrow disc"><span class="lb">値引き</span><span class="v" id="ovDisc">−¥0</span></div>
+    <div class="discbtns">
+      <button data-disc="0" class="on">値引なし</button>
+      <button data-disc="50">¥50引</button>
+      <button data-disc="100">¥100引</button>
+      <button data-disc="round">キリよく</button>
+    </div>
     <div class="payrow total"><span class="lb">合計</span><span class="v" id="ovTotal">¥0</span></div>
     <div class="payrow recv"><span class="lb">預り金</span><span class="v" id="ovRecv">¥0</span></div>
     <div class="payrow change" id="ovChangeRow"><span class="lb">お釣り</span><span class="v" id="ovChange">¥0</span></div>
@@ -243,7 +291,7 @@ function jsonp(action, params){
     const cb='cb_'+Date.now()+'_'+Math.floor(Math.random()*100000);
     const s=document.createElement('script');
     const q=new URLSearchParams(Object.assign({action:action,callback:cb},params||{}));
-    const timer=setTimeout(function(){cleanup();reject(new Error('通信タイムアウト'));},15000);
+    const timer=setTimeout(function(){cleanup();reject(new Error('通信タイムアウト'));},30000);
     function cleanup(){clearTimeout(timer);delete window[cb];s.remove();}
     window[cb]=function(data){cleanup();resolve(data);};
     s.onerror=function(){cleanup();reject(new Error('通信に失敗しました'));};
@@ -253,11 +301,16 @@ function jsonp(action, params){
 }
 
 /* ===== 状態 ===== */
-let PRODUCTS=[];               // {id,name,category,price}
-let cart={};                   // id -> qty
+let PRODUCTS=[];               // {id,name,category,price,stock}
+let cart={};                   // id -> qty（会計 or 返品の作業カート）
 let curCat='すべて';
 let received=0;                // 会計中の預り金
+let discount=0;                // 会計中の値引き（円）
+let RETURN=false;              // 返品モード
 const yen=n=>'¥'+Number(n||0).toLocaleString('ja-JP');
+const prod=id=>PRODUCTS.find(x=>x.id===id);
+// 在庫追跡商品のこれ以上追加できる残数（無制限は Infinity）
+function availOf(id){const p=prod(id); if(!p||p.stock==null)return Infinity; return Math.max(0,p.stock-(cart[id]||0));}
 
 /* ===== 起動 ===== */
 init();
@@ -282,10 +335,21 @@ function renderGrid(){
   list.forEach(function(p){
     const b=document.createElement('button');
     b.className='pcard';
+    const soldout=(p.stock!=null && p.stock<=0);
+    if(soldout && !RETURN) b.classList.add('sold');
+    let stkHtml='';
+    if(p.stock!=null){
+      stkHtml=soldout
+        ? '<span class="stk low">在庫 0</span>'
+        : '<span class="stk'+(p.stock<=3?' low':'')+'">残り '+p.stock+'</span>';
+    }
     b.innerHTML='<span class="cat cat--'+p.category+'">'+p.category+'</span>'
+      +(soldout && !RETURN?'<span class="soldb">売切</span>':'')
       +'<span class="nm">'+esc(p.name)+'</span>'
-      +'<span class="pr"><small>¥</small>'+Number(p.price).toLocaleString('ja-JP')+'</span>';
-    b.onclick=function(){addToCart(p.id);};
+      +'<span class="pr"><small>¥</small>'+Number(p.price).toLocaleString('ja-JP')+'</span>'
+      +stkHtml;
+    if(soldout && !RETURN){ b.disabled=true; }
+    else{ b.onclick=function(){addToCart(p.id);}; }
     grid.appendChild(b);
   });
 }
@@ -297,15 +361,33 @@ document.getElementById('tabs').addEventListener('click',function(e){
   curCat=t.dataset.cat; renderGrid();
 });
 
+/* ===== 返品モード切替 ===== */
+document.getElementById('modeBtn').onclick=function(){
+  RETURN=!RETURN;
+  document.body.classList.toggle('ret',RETURN);
+  this.textContent=RETURN?'返品中':'返品';
+  clearCart();            // モード切替で作業カートは空に
+  renderGrid();
+};
+
 /* ===== カート ===== */
-function addToCart(id){ cart[id]=(cart[id]||0)+1; renderCart(); }
+function addToCart(id){
+  if(!RETURN && availOf(id)<=0){ const p=prod(id); toast('在庫が足りません（残り'+(p?p.stock:0)+'）'); return; }
+  cart[id]=(cart[id]||0)+1; renderCart();
+}
 function setQty(id,d){
+  if(d>0 && !RETURN && availOf(id)<=0){ const p=prod(id); toast('在庫が足りません（残り'+(p?p.stock:0)+'）'); return; }
   cart[id]=(cart[id]||0)+d;
   if(cart[id]<=0) delete cart[id];
   renderCart();
 }
 function delItem(id){ delete cart[id]; renderCart(); }
 function clearCart(){ cart={}; renderCart(); }
+
+/* 会計/返品後に在庫表示を最新化 */
+async function refreshProducts(){
+  try{ const r=await jsonp('getProducts'); if(r.ok){ PRODUCTS=r.products; renderGrid(); } }catch(e){}
+}
 
 function cartTotal(){
   return Object.keys(cart).reduce(function(s,id){
@@ -342,7 +424,10 @@ function renderCart(){
   }
   const total=cartTotal();
   document.getElementById('cartTotal').innerHTML='<small>¥</small>'+total.toLocaleString('ja-JP');
-  document.getElementById('payBtn').disabled=(ids.length===0);
+  const payBtn=document.getElementById('payBtn');
+  payBtn.disabled=(ids.length===0);
+  payBtn.textContent=RETURN?'返品する':'会計する';
+  document.getElementById('cartTitle').textContent=RETURN?'返品カート':'カート';
   document.getElementById('clearBtn').style.display=ids.length?'block':'none';
 }
 
@@ -353,27 +438,58 @@ const overlay=document.getElementById('overlay');
 document.getElementById('payBtn').onclick=openPay;
 document.getElementById('cancelBtn').onclick=closePay;
 
+function payTotal(){ const sub=cartTotal(); return sub-Math.min(discount,sub); }
+
 function openPay(){
   if(!Object.keys(cart).length)return;
-  received=0; updatePay();
+  received=0; discount=0;
+  setDiscActive(0);
+  document.getElementById('confirmBtn').textContent=RETURN?'返品を確定':'会計を確定';
+  updatePay();
   overlay.classList.add('on');
 }
 function closePay(){ overlay.classList.remove('on'); }
 
+function setDiscActive(v){
+  overlay.querySelectorAll('.discbtns button').forEach(function(x){
+    x.classList.toggle('on', x.dataset.disc===String(v));
+  });
+}
+
 function updatePay(){
-  const total=cartTotal();
+  const sub=cartTotal();
+  if(RETURN){
+    document.getElementById('ovRefund').textContent=yen(sub);
+    document.getElementById('confirmBtn').disabled=(sub<=0);
+    return;
+  }
+  const disc=Math.min(discount,sub);
+  const total=sub-disc;
   const change=received-total;
+  document.getElementById('ovSub').textContent=yen(sub);
+  document.getElementById('ovDisc').textContent='−'+yen(disc);
   document.getElementById('ovTotal').textContent=yen(total);
   document.getElementById('ovRecv').textContent=yen(received);
   document.getElementById('ovChange').textContent=(received>0)?yen(change):'¥0';
-  const row=document.getElementById('ovChangeRow');
-  row.classList.toggle('neg', received>0 && change<0);
+  document.getElementById('ovChangeRow').classList.toggle('neg', received>0 && change<0);
   document.getElementById('confirmBtn').disabled=(received>0 && change<0);
 }
 
+/* 値引きボタン */
+overlay.querySelector('.discbtns').addEventListener('click',function(e){
+  const b=e.target.closest('button'); if(!b)return;
+  const sub=cartTotal();
+  const v=b.dataset.disc;
+  if(v==='round'){ const t=Math.floor(sub/100)*100; discount=(t>0)?(sub-t):0; }
+  else{ discount=Math.min(Number(v),sub); }
+  setDiscActive(v);
+  if(received>0) received=payTotal();   // ちょうど入力後に値引きしたら追従
+  updatePay();
+});
+
 overlay.querySelector('.quick').addEventListener('click',function(e){
   const b=e.target.closest('button'); if(!b)return;
-  if(b.dataset.exact){ received=cartTotal(); }
+  if(b.dataset.exact){ received=payTotal(); }
   else if(b.dataset.add){ received+=Number(b.dataset.add); }
   updatePay();
 });
@@ -387,21 +503,33 @@ overlay.querySelector('.keys').addEventListener('click',function(e){
 
 /* ===== 会計確定 ===== */
 document.getElementById('confirmBtn').onclick=async function(){
-  const btn=this; const total=cartTotal();
-  if(received>0 && received<total)return;
+  const btn=this;
   const items=Object.keys(cart).map(id=>({id:id,qty:cart[id]}));
+  if(!items.length)return;
+  const labelBase=RETURN?'返品を確定':'会計を確定';
   btn.disabled=true; btn.textContent='送信中…';
   try{
-    const res=await jsonp('checkout',{items:JSON.stringify(items),received:received||total});
-    if(!res.ok)throw new Error(res.error||'会計に失敗しました');
-    closePay(); clearCart();
-    refreshSummary();
-    const chg=res.change||0;
-    toast('会計完了 '+yen(res.total)+'<br><span class="big">お釣り '+yen(chg)+'</span>');
+    if(RETURN){
+      const res=await jsonp('refund',{items:JSON.stringify(items)});
+      if(!res.ok)throw new Error(res.error||'返品に失敗しました');
+      closePay(); clearCart(); refreshSummary(); refreshProducts();
+      toast('返品完了<br><span class="big">返金 '+yen(res.refund)+'</span>');
+    }else{
+      const sub=cartTotal();
+      const disc=Math.min(discount,sub);
+      const total=sub-disc;
+      if(received>0 && received<total){ btn.disabled=false; btn.textContent=labelBase; return; }
+      const res=await jsonp('checkout',{items:JSON.stringify(items),received:received||total,discount:disc});
+      if(!res.ok)throw new Error(res.error||'会計に失敗しました');
+      closePay(); clearCart(); refreshSummary(); refreshProducts();
+      const chg=res.change||0;
+      const dmsg=res.discount>0?('（値引 '+yen(res.discount)+'）'):'';
+      toast('会計完了 '+yen(res.total)+dmsg+'<br><span class="big">お釣り '+yen(chg)+'</span>');
+    }
   }catch(e){
     toast('⚠ '+e.message);
   }finally{
-    btn.disabled=false; btn.textContent='会計を確定';
+    btn.disabled=false; btn.textContent=labelBase;
   }
 };
 
