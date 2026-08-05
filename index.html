@@ -192,6 +192,50 @@
   body.ret .payrow.total, body.ret .payrow.recv, body.ret .payrow.change,
   body.ret .quick, body.ret .keys{display:none;}
 
+  /* ---- 設定パネル ---- */
+  .gearbtn{background:#fff; color:var(--leaf-d); border:2px solid #fff; border-radius:10px;
+    padding:8px 12px; font-size:16px; line-height:1;}
+  .gearbtn:active{transform:translateY(1px);}
+  .admin{position:fixed; inset:0; background:var(--bg); z-index:200; display:none; flex-direction:column;}
+  .admin.on{display:flex;}
+  .abar{display:flex; align-items:center; gap:12px; padding:12px 18px; background:var(--leaf); color:#fff;}
+  .abar .atitle{font-weight:800; font-size:18px;}
+  .atabs{display:flex; gap:8px; margin-left:6px;}
+  .atabs button{background:rgba(255,255,255,.16); color:#fff; border:0; border-radius:9px;
+    padding:9px 16px; font-weight:800; font-size:14px;}
+  .atabs button.on{background:#fff; color:var(--leaf-d);}
+  .aclose{margin-left:auto; background:#fff; color:var(--leaf-d); border:0; border-radius:9px;
+    padding:9px 16px; font-weight:800;}
+  .apanel{flex:1; overflow:auto; padding:16px 18px;}
+  .anote{font-size:13px; color:var(--sub); background:#fff; border:1px solid var(--line);
+    border-radius:10px; padding:10px 12px; margin-bottom:12px;}
+  .newp{display:flex; gap:8px; flex-wrap:wrap; align-items:center; background:#fff;
+    border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:14px;}
+  .newp input,.newp select{border:2px solid var(--line); border-radius:9px; padding:10px; font-size:15px;}
+  .newp #npName{flex:1; min-width:140px;}
+  .newp #npPrice,.newp #npStock{width:120px;}
+  .badd{background:var(--proc); color:#fff; border:0; border-radius:9px; padding:11px 16px; font-weight:800;}
+  .plist{display:flex; flex-direction:column; gap:8px;}
+  .prow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; background:#fff;
+    border:1px solid var(--line); border-radius:11px; padding:10px 12px;}
+  .prow.off{opacity:.5;}
+  .prow .pid{font-size:11px; color:var(--sub); width:42px; font-weight:800;}
+  .prow input,.prow select{border:2px solid var(--line); border-radius:8px; padding:9px; font-size:15px;}
+  .prow .pname{flex:1; min-width:120px;}
+  .prow .pprice,.prow .pstock,.prow .porder{width:84px;}
+  .prow label.sw{display:flex; align-items:center; gap:5px; font-size:13px; font-weight:700; white-space:nowrap;}
+  .prow .psave{background:var(--leaf); color:#fff; border:0; border-radius:8px; padding:10px 14px; font-weight:800;}
+  .prow .pdel{background:#fff; color:var(--danger); border:2px solid var(--danger); border-radius:8px; padding:8px 12px; font-weight:800;}
+  .rbox table,.txlist table{width:100%; border-collapse:collapse; background:#fff;
+    border:1px solid var(--line); border-radius:10px; overflow:hidden;}
+  .rbox th,.rbox td,.txlist th,.txlist td{padding:9px 10px; border-bottom:1px solid var(--line);
+    text-align:right; font-variant-numeric:tabular-nums;}
+  .rbox th,.txlist th{background:var(--leaf); color:#fff; font-size:13px;}
+  .rbox td:first-child,.rbox th:first-child,.txlist td:first-child,.txlist th:first-child{text-align:left;}
+  .rtot{font-weight:800; font-size:16px; margin-top:12px; text-align:right;}
+  .tvoid{background:#fff; color:var(--danger); border:2px solid var(--danger); border-radius:8px; padding:7px 12px; font-weight:800;}
+  .tkind.ret{color:var(--danger); font-weight:800;}
+
   /* スマホ */
   @media(max-width:760px){
     main{grid-template-columns:1fr; grid-template-rows:1fr auto;}
@@ -215,11 +259,46 @@
     <span class="amt" id="todayAmt">¥—</span>
     <span class="ct" id="todayCt"></span>
   </div>
+  <button class="gearbtn" id="gearBtn" title="設定">⚙</button>
   <button class="modebtn" id="modeBtn">返品</button>
 </header>
 
 <div class="retband">● 返品モード ─ 商品をタップして返品分を選び、「返品する」で確定します</div>
 <div class="banner" id="banner"></div>
+
+<!-- 設定パネル -->
+<div class="admin" id="admin">
+  <div class="abar">
+    <span class="atitle">⚙ 設定</span>
+    <div class="atabs">
+      <button data-atab="prod" class="on">商品マスタ</button>
+      <button data-atab="report">本日の売上</button>
+      <button data-atab="void">取引取消</button>
+    </div>
+    <button class="aclose" id="adminClose">レジに戻る</button>
+  </div>
+
+  <div class="apanel" id="apProd">
+    <div class="anote">価格・在庫・販売中をその場で変更できます。在庫は空欄＝無制限。変更したら各行の「保存」を押してください。</div>
+    <div class="newp">
+      <input id="npName" placeholder="新しい商品名">
+      <select id="npCat"><option>野菜</option><option>果物</option><option>加工品</option></select>
+      <input id="npPrice" type="number" inputmode="numeric" placeholder="価格">
+      <input id="npStock" type="number" inputmode="numeric" placeholder="在庫(空=∞)">
+      <button id="npAdd" class="badd">＋ 追加</button>
+    </div>
+    <div id="prodList" class="plist"></div>
+  </div>
+
+  <div class="apanel" id="apReport" hidden>
+    <div id="reportBox" class="rbox">読み込み中…</div>
+  </div>
+
+  <div class="apanel" id="apVoid" hidden>
+    <div class="anote">取り消すと明細・取引履歴から削除され、在庫も元に戻ります。元に戻せません。</div>
+    <div id="txList" class="txlist">読み込み中…</div>
+  </div>
+</div>
 
 <main>
   <section class="left">
@@ -612,6 +691,132 @@ document.getElementById('peConfirm').onclick=function(){
   closePrice(); renderCart();
 };
 document.getElementById('peCancel').onclick=closePrice;
+
+/* ===== 設定パネル ===== */
+const admin=document.getElementById('admin');
+function attr(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
+function catSelectHtml(sel){return '<select class="pcat">'+['野菜','果物','加工品'].map(c=>'<option'+(c===sel?' selected':'')+'>'+c+'</option>').join('')+'</select>';}
+
+document.getElementById('gearBtn').onclick=function(){ admin.classList.add('on'); switchATab('prod'); };
+document.getElementById('adminClose').onclick=function(){ admin.classList.remove('on'); };
+document.querySelector('.atabs').addEventListener('click',function(e){
+  const b=e.target.closest('button'); if(b) switchATab(b.dataset.atab);
+});
+function switchATab(name){
+  document.querySelectorAll('.atabs button').forEach(x=>x.classList.toggle('on',x.dataset.atab===name));
+  document.getElementById('apProd').hidden=(name!=='prod');
+  document.getElementById('apReport').hidden=(name!=='report');
+  document.getElementById('apVoid').hidden=(name!=='void');
+  if(name==='prod') loadAdminProducts();
+  else if(name==='report') loadReport();
+  else if(name==='void') loadTx();
+}
+
+async function loadAdminProducts(){
+  const box=document.getElementById('prodList'); box.innerHTML='読み込み中…';
+  try{
+    const r=await jsonp('getProductsAll'); if(!r.ok)throw new Error(r.error||'取得失敗');
+    box.innerHTML='';
+    r.products.forEach(function(p){
+      const row=document.createElement('div'); row.className='prow'+(p.active?'':' off');
+      row.innerHTML=
+        '<span class="pid">'+p.id+'</span>'
+       +'<input class="pname" value="'+attr(p.name)+'">'
+       +catSelectHtml(p.category)
+       +'<input class="pprice" type="number" inputmode="numeric" value="'+p.price+'">'
+       +'<input class="pstock" type="number" inputmode="numeric" placeholder="∞" value="'+(p.stock==null?'':p.stock)+'">'
+       +'<input class="porder" type="number" inputmode="numeric" value="'+p.order+'">'
+       +'<label class="sw"><input type="checkbox" class="pactive"'+(p.active?' checked':'')+'>販売中</label>'
+       +'<button class="psave">保存</button>'
+       +'<button class="pdel">削除</button>';
+      row.querySelector('.psave').onclick=()=>saveRow(row,p.id);
+      row.querySelector('.pdel').onclick=()=>delRow(p.id,p.name);
+      box.appendChild(row);
+    });
+  }catch(e){ box.innerHTML='<div class="anote">読み込みに失敗しました（'+e.message+'）</div>'; }
+}
+function rowVals(row){
+  return {
+    name:row.querySelector('.pname').value.trim(),
+    category:row.querySelector('.pcat').value,
+    price:row.querySelector('.pprice').value,
+    stock:row.querySelector('.pstock').value.trim(),
+    order:row.querySelector('.porder').value,
+    active:row.querySelector('.pactive').checked
+  };
+}
+async function saveRow(row,id){
+  const v=rowVals(row); if(!v.name){ toast('商品名を入れてください'); return; }
+  const btn=row.querySelector('.psave'); btn.disabled=true; btn.textContent='…';
+  try{
+    const r=await jsonp('saveProduct',{id:id,name:v.name,category:v.category,price:v.price,stock:v.stock,order:v.order,active:v.active});
+    if(!r.ok)throw new Error(r.error||'保存失敗');
+    row.classList.toggle('off',!v.active);
+    toast('保存しました'); refreshProducts();
+  }catch(e){ toast('⚠ '+e.message); }
+  finally{ btn.disabled=false; btn.textContent='保存'; }
+}
+async function delRow(id,name){
+  if(!window.confirm('「'+name+'」を商品マスタから削除します。よろしいですか？'))return;
+  try{
+    const r=await jsonp('deleteProduct',{id:id}); if(!r.ok)throw new Error(r.error||'削除失敗');
+    toast('削除しました'); loadAdminProducts(); refreshProducts();
+  }catch(e){ toast('⚠ '+e.message); }
+}
+document.getElementById('npAdd').onclick=async function(){
+  const name=document.getElementById('npName').value.trim();
+  if(!name){ toast('商品名を入れてください'); return; }
+  const cat=document.getElementById('npCat').value;
+  const price=document.getElementById('npPrice').value||0;
+  const stock=document.getElementById('npStock').value.trim();
+  const btn=this; btn.disabled=true;
+  try{
+    const r=await jsonp('saveProduct',{id:'',name:name,category:cat,price:price,stock:stock,order:0,active:true});
+    if(!r.ok)throw new Error(r.error||'追加失敗');
+    document.getElementById('npName').value=''; document.getElementById('npPrice').value=''; document.getElementById('npStock').value='';
+    toast('追加しました'); loadAdminProducts(); refreshProducts();
+  }catch(e){ toast('⚠ '+e.message); }
+  finally{ btn.disabled=false; }
+};
+
+async function loadReport(){
+  const box=document.getElementById('reportBox'); box.innerHTML='読み込み中…';
+  try{
+    const r=await jsonp('getReport'); if(!r.ok)throw new Error(r.error||'取得失敗');
+    if(!r.items.length){ box.innerHTML='<div class="anote">本日の売上はまだありません。</div>'; return; }
+    let h='<table><tr><th>商品</th><th>売数</th><th>金額</th><th>返品</th><th>正味</th></tr>';
+    r.items.forEach(function(x){
+      h+='<tr><td>'+esc(x.name)+'</td><td>'+x.soldQty+'</td><td>'+yen(x.soldAmt)+'</td><td>'+(x.retQty?('-'+x.retQty):'—')+'</td><td>'+yen(x.netAmt)+'</td></tr>';
+    });
+    h+='</table>';
+    h+='<div class="rtot">合計 '+yen(r.totalAmt)+'（正味 '+r.totalQty+'点'+(r.totalReturn?('／返品 '+yen(r.totalReturn)):'')+'）</div>';
+    box.innerHTML=h;
+  }catch(e){ box.innerHTML='<div class="anote">読み込みに失敗しました（'+e.message+'）</div>'; }
+}
+
+async function loadTx(){
+  const box=document.getElementById('txList'); box.innerHTML='読み込み中…';
+  try{
+    const r=await jsonp('getTransactions'); if(!r.ok)throw new Error(r.error||'取得失敗');
+    if(!r.list.length){ box.innerHTML='<div class="anote">本日の取引はまだありません。</div>'; return; }
+    let h='<table><tr><th>時刻</th><th>区分</th><th>点数</th><th>合計</th><th></th></tr>';
+    r.list.forEach(function(t){
+      const ret=(t.kind==='返品');
+      h+='<tr><td>'+t.time+'</td><td class="tkind'+(ret?' ret':'')+'">'+t.kind+'</td><td>'+t.count+'</td><td>'+yen(t.total)+'</td>'
+        +'<td><button class="tvoid" data-tx="'+t.txId+'">取消</button></td></tr>';
+    });
+    h+='</table>';
+    box.innerHTML=h;
+    box.querySelectorAll('.tvoid').forEach(function(b){ b.onclick=()=>voidTx(b.dataset.tx); });
+  }catch(e){ box.innerHTML='<div class="anote">読み込みに失敗しました（'+e.message+'）</div>'; }
+}
+async function voidTx(txId){
+  if(!window.confirm('この取引を取り消します（'+txId+'）。\n明細・履歴から削除し、在庫を戻します。元に戻せません。'))return;
+  try{
+    const r=await jsonp('voidTransaction',{txId:txId}); if(!r.ok)throw new Error(r.error||'取消失敗');
+    toast('取り消しました'); loadTx(); refreshSummary(); refreshProducts();
+  }catch(e){ toast('⚠ '+e.message); }
+}
 
 /* ===== 本日の売上 ===== */
 async function refreshSummary(){
