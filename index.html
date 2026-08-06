@@ -242,6 +242,24 @@
   .tvoid{background:#fff; color:var(--danger); border:2px solid var(--danger); border-radius:8px; padding:7px 12px; font-weight:800;}
   .tkind.ret{color:var(--danger); font-weight:800;}
 
+  /* ---- 精算・締め ---- */
+  .csect{background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:14px;}
+  .csect .ch{font-weight:800; font-size:16px; margin-bottom:10px;}
+  .csect .ch2{font-weight:800; font-size:14px; margin:14px 0 8px; color:var(--sub);}
+  .denom{display:flex; flex-direction:column; gap:6px;}
+  .drow{display:grid; grid-template-columns:84px 1fr 110px; align-items:center; gap:10px;}
+  .drow .dlab{font-weight:700; font-variant-numeric:tabular-nums; text-align:right;}
+  .drow .dcnt{border:2px solid var(--line); border-radius:8px; padding:9px; font-size:16px; text-align:center;}
+  .drow .dsub{text-align:right; color:var(--sub); font-variant-numeric:tabular-nums;}
+  .crow{display:flex; justify-content:space-between; align-items:baseline; padding:7px 2px; font-size:15px;}
+  .crow span:last-child{font-variant-numeric:tabular-nums; font-weight:700;}
+  .crow.tot{border-top:2px solid var(--line); margin-top:8px; padding-top:12px; font-size:17px; font-weight:800;}
+  .crow.tot .ctot,.crow.tot span:last-child{font-size:22px;}
+  .crow.over span:last-child{font-size:22px; font-weight:800;}
+  .crow.over.plus span:last-child{color:var(--proc);}
+  .crow.over.minus span:last-child{color:var(--danger);}
+  #closeWarn.on{background:#8f2f1f; color:#fff; border-radius:10px; padding:10px 12px; margin-bottom:12px; font-weight:800;}
+
   /* スマホ */
   @media(max-width:760px){
     main{grid-template-columns:1fr; grid-template-rows:1fr auto;}
@@ -280,6 +298,7 @@
     <div class="atabs">
       <button data-atab="prod" class="on">商品マスタ</button>
       <button data-atab="report">本日の売上</button>
+      <button data-atab="close">精算・締め</button>
       <button data-atab="void">取引取消</button>
     </div>
     <button class="aclose" id="adminClose">レジに戻る</button>
@@ -299,6 +318,28 @@
 
   <div class="apanel" id="apReport" hidden>
     <div id="reportBox" class="rbox">読み込み中…</div>
+  </div>
+
+  <div class="apanel" id="apClose" hidden>
+    <div id="closeWarn"></div>
+    <div class="csect">
+      <div class="ch">釣銭準備金（開店前に入力）</div>
+      <div class="denom" id="floatDenom"></div>
+      <div class="crow tot"><span>準備金 合計</span><span class="ctot" id="floatTotal">¥0</span></div>
+      <button class="badd" id="floatSave">釣銭準備金を保存</button>
+    </div>
+    <div class="csect">
+      <div class="ch">レジ締め（本日）</div>
+      <div class="crow"><span>現金売上</span><span id="clSales">¥0</span></div>
+      <div class="crow"><span>釣銭準備金</span><span id="clFloat">¥0</span></div>
+      <div class="crow tot"><span>理論在高（あるべき現金）</span><span id="clTheo">¥0</span></div>
+      <div class="ch2">実際の現金を数えて入力</div>
+      <div class="denom" id="actualDenom"></div>
+      <div class="crow tot"><span>実在高</span><span class="ctot" id="actualTotal">¥0</span></div>
+      <div class="crow over"><span>過不足</span><span id="clOver">¥0</span></div>
+      <button class="badd" id="closeBtn">この内容で締める</button>
+      <div id="closeResult" class="anote" hidden></div>
+    </div>
   </div>
 
   <div class="apanel" id="apVoid" hidden>
@@ -784,9 +825,11 @@ function switchATab(name){
   document.querySelectorAll('.atabs button').forEach(x=>x.classList.toggle('on',x.dataset.atab===name));
   document.getElementById('apProd').hidden=(name!=='prod');
   document.getElementById('apReport').hidden=(name!=='report');
+  document.getElementById('apClose').hidden=(name!=='close');
   document.getElementById('apVoid').hidden=(name!=='void');
   if(name==='prod') loadAdminProducts();
   else if(name==='report') loadReport();
+  else if(name==='close') loadClose();
   else if(name==='void') loadTx();
 }
 
@@ -895,6 +938,98 @@ async function voidTx(txId){
     toast('取り消しました'); loadTx(); refreshSummary(); refreshProducts();
   }catch(e){ toast('⚠ '+e.message); }
 }
+
+/* ===== 精算・レジ締め ===== */
+const DENOMS=[10000,5000,1000,500,100,50,10,5,1];
+let clTheoVal=0;
+function makeDenom(container, totalEl, onChange){
+  container.innerHTML=DENOMS.map(function(d){
+    return '<div class="drow"><span class="dlab">'+d.toLocaleString('ja-JP')+'円</span>'
+      +'<input class="dcnt" data-d="'+d+'" type="number" inputmode="numeric" min="0" placeholder="0">'
+      +'<span class="dsub" data-sub="'+d+'">¥0</span></div>';
+  }).join('');
+  function recompute(){
+    let t=0;
+    container.querySelectorAll('.dcnt').forEach(function(inp){
+      const d=Number(inp.dataset.d), c=Math.max(0,Math.floor(Number(inp.value)||0));
+      t+=d*c; container.querySelector('[data-sub="'+d+'"]').textContent=yen(d*c);
+    });
+    if(totalEl) totalEl.textContent=yen(t);
+    if(onChange) onChange(t);
+    return t;
+  }
+  container.addEventListener('input',recompute);
+  return {
+    total:recompute,
+    breakdown:function(){ const o={}; container.querySelectorAll('.dcnt').forEach(function(inp){ const c=Math.max(0,Math.floor(Number(inp.value)||0)); if(c)o[inp.dataset.d]=c; }); return o; },
+    set:function(b){ container.querySelectorAll('.dcnt').forEach(function(inp){ inp.value=(b&&b[inp.dataset.d])?b[inp.dataset.d]:''; }); recompute(); }
+  };
+}
+function parseBreak(s){ try{ return JSON.parse(s||'{}'); }catch(e){ return {}; } }
+function updateOver(){
+  const actual=actualEditor.total();
+  const over=actual-clTheoVal;
+  const el=document.getElementById('clOver');
+  const row=el.parentElement;
+  el.textContent=(over===0?'ちょうど ':(over>0?'+':''))+ (over===0?'':yen(over));
+  if(over===0){ el.textContent='ちょうど'; }
+  row.classList.toggle('plus', over>0);
+  row.classList.toggle('minus', over<0);
+}
+const floatEditor=makeDenom(document.getElementById('floatDenom'), document.getElementById('floatTotal'));
+const actualEditor=makeDenom(document.getElementById('actualDenom'), document.getElementById('actualTotal'), updateOver);
+
+async function loadClose(){
+  const warn=document.getElementById('closeWarn');
+  const pend=loadQueue().length;
+  if(pend>0){ warn.className='on'; warn.textContent='⚠ 未送信が'+pend+'件あります。ヘッダの「未送信」で送信してから締めてください（売上に反映されません）。'; }
+  else{ warn.className=''; warn.textContent=''; }
+  document.getElementById('closeBtn').disabled=(pend>0);
+  document.getElementById('closeResult').hidden=true;
+  try{
+    const r=await jsonp('getDay'); if(!r.ok)throw new Error(r.error||'取得失敗');
+    floatEditor.set(parseBreak(r.floatBreak));
+    document.getElementById('clSales').textContent=yen(r.cashSales);
+    document.getElementById('clFloat').textContent=yen(r.float);
+    document.getElementById('clTheo').textContent=yen(r.theoretical);
+    clTheoVal=r.theoretical;
+    if(r.closed){
+      actualEditor.set(parseBreak(r.actualBreak));
+      const res=document.getElementById('closeResult');
+      res.hidden=false;
+      res.innerHTML='本日は '+r.closedAt.slice(11,16)+' に締め済み：実在高 '+yen(r.actual)+' ／ 過不足 '+(r.over===0?'ちょうど':yen(r.over))+'（もう一度締めれば上書きされます）';
+    }else{
+      actualEditor.set({});
+    }
+    updateOver();
+  }catch(e){ warn.className='on'; warn.textContent='読み込みに失敗しました（'+e.message+'）'; }
+}
+
+document.getElementById('floatSave').onclick=async function(){
+  const btn=this; btn.disabled=true;
+  try{
+    const r=await jsonp('setFloat',{float:floatEditor.total(),floatBreak:JSON.stringify(floatEditor.breakdown())});
+    if(!r.ok)throw new Error(r.error||'保存失敗');
+    toast('釣銭準備金を保存しました'); loadClose();
+  }catch(e){ toast('⚠ '+e.message); }
+  finally{ btn.disabled=false; }
+};
+
+document.getElementById('closeBtn').onclick=async function(){
+  if(loadQueue().length>0){ toast('未送信を送信してから締めてください'); return; }
+  const actual=actualEditor.total();
+  const over=actual-clTheoVal;
+  if(!window.confirm('本日を締めます。\n実在高 '+yen(actual)+' ／ 過不足 '+(over===0?'ちょうど':yen(over))+'\nよろしいですか？'))return;
+  const btn=this; btn.disabled=true;
+  try{
+    const r=await jsonp('closeDay',{actual:actual,actualBreak:JSON.stringify(actualEditor.breakdown())});
+    if(!r.ok)throw new Error(r.error||'締め失敗');
+    const res=document.getElementById('closeResult'); res.hidden=false;
+    res.innerHTML='締め完了（'+r.closedAt.slice(11,16)+'）<br>現金売上 '+yen(r.cashSales)+' ／ 理論在高 '+yen(r.theoretical)+' ／ 実在高 '+yen(r.actual)+' ／ 過不足 <b>'+(r.over===0?'ちょうど':yen(r.over))+'</b>';
+    toast('締めました（過不足 '+(r.over===0?'ちょうど':yen(r.over))+'）');
+  }catch(e){ toast('⚠ '+e.message); }
+  finally{ btn.disabled=false; }
+};
 
 /* ===== 本日の売上（サーバ確定＋未送信） ===== */
 async function refreshSummary(){
