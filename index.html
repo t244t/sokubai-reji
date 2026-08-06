@@ -966,13 +966,16 @@ function makeDenom(container, totalEl, onChange){
   };
 }
 function parseBreak(s){ try{ return JSON.parse(s||'{}'); }catch(e){ return {}; } }
+function fmtOver(o){ return o===0?'ちょうど':(o>0?'+'+yen(o):'−'+yen(-o)); }
 function updateOver(){
-  const actual=actualEditor.total();
+  let actual=0;
+  document.querySelectorAll('#actualDenom .dcnt').forEach(function(inp){
+    actual+=Number(inp.dataset.d)*Math.max(0,Math.floor(Number(inp.value)||0));
+  });
   const over=actual-clTheoVal;
   const el=document.getElementById('clOver');
   const row=el.parentElement;
-  el.textContent=(over===0?'ちょうど ':(over>0?'+':''))+ (over===0?'':yen(over));
-  if(over===0){ el.textContent='ちょうど'; }
+  el.textContent=fmtOver(over);
   row.classList.toggle('plus', over>0);
   row.classList.toggle('minus', over<0);
 }
@@ -997,7 +1000,7 @@ async function loadClose(){
       actualEditor.set(parseBreak(r.actualBreak));
       const res=document.getElementById('closeResult');
       res.hidden=false;
-      res.innerHTML='本日は '+r.closedAt.slice(11,16)+' に締め済み：実在高 '+yen(r.actual)+' ／ 過不足 '+(r.over===0?'ちょうど':yen(r.over))+'（もう一度締めれば上書きされます）';
+      res.innerHTML='本日は '+r.closedAt.slice(11,16)+' に締め済み：実在高 '+yen(r.actual)+' ／ 過不足 '+fmtOver(r.over)+'（もう一度締めれば上書きされます）';
     }else{
       actualEditor.set({});
     }
@@ -1019,14 +1022,14 @@ document.getElementById('closeBtn').onclick=async function(){
   if(loadQueue().length>0){ toast('未送信を送信してから締めてください'); return; }
   const actual=actualEditor.total();
   const over=actual-clTheoVal;
-  if(!window.confirm('本日を締めます。\n実在高 '+yen(actual)+' ／ 過不足 '+(over===0?'ちょうど':yen(over))+'\nよろしいですか？'))return;
+  if(!window.confirm('本日を締めます。\n実在高 '+yen(actual)+' ／ 過不足 '+fmtOver(over)+'\nよろしいですか？'))return;
   const btn=this; btn.disabled=true;
   try{
     const r=await jsonp('closeDay',{actual:actual,actualBreak:JSON.stringify(actualEditor.breakdown())});
     if(!r.ok)throw new Error(r.error||'締め失敗');
     const res=document.getElementById('closeResult'); res.hidden=false;
-    res.innerHTML='締め完了（'+r.closedAt.slice(11,16)+'）<br>現金売上 '+yen(r.cashSales)+' ／ 理論在高 '+yen(r.theoretical)+' ／ 実在高 '+yen(r.actual)+' ／ 過不足 <b>'+(r.over===0?'ちょうど':yen(r.over))+'</b>';
-    toast('締めました（過不足 '+(r.over===0?'ちょうど':yen(r.over))+'）');
+    res.innerHTML='締め完了（'+r.closedAt.slice(11,16)+'）<br>現金売上 '+yen(r.cashSales)+' ／ 理論在高 '+yen(r.theoretical)+' ／ 実在高 '+yen(r.actual)+' ／ 過不足 <b>'+fmtOver(r.over)+'</b>';
+    toast('締めました（過不足 '+fmtOver(r.over)+'）');
   }catch(e){ toast('⚠ '+e.message); }
   finally{ btn.disabled=false; }
 };
