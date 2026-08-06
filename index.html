@@ -175,6 +175,18 @@
     font-weight:800; padding:7px; font-size:13px; letter-spacing:.14em;}
   body.ret .pay{background:var(--danger);}
 
+  /* ---- 練習モード ---- */
+  .pracband{display:none;}
+  body.practice .pracband{display:flex; align-items:center; justify-content:center; gap:14px;
+    flex-wrap:wrap; background:#F5C518; color:#3a2e00; font-weight:900; padding:9px 12px;
+    font-size:14px; letter-spacing:.04em;}
+  body.practice .pracband button{background:#3a2e00; color:#F5C518; border:0; border-radius:8px;
+    padding:7px 14px; font-weight:800; font-size:13px;}
+  body.practice .pracband #pracExit{background:#fff; color:#3a2e00; border:2px solid #3a2e00;}
+  body.practice header{box-shadow:inset 0 -4px 0 #F5C518;}
+  .pracbtn{background:#F5C518; color:#3a2e00; border:0; border-radius:9px; padding:9px 16px; font-weight:800;}
+  body.practice .pracbtn{background:#3a2e00; color:#F5C518;}
+
   /* ---- 割引 ---- */
   .discbtns{display:flex; gap:8px; margin:4px 0 8px;}
   .discbtns button{flex:1; padding:12px 0; border-radius:11px; font-size:14px; font-weight:800;
@@ -304,6 +316,10 @@
 </header>
 
 <div class="retband">● 返品モード ─ 商品をタップして返品分を選び、「返品する」で確定します</div>
+<div class="pracband">🟡 練習モード ─ 売上は記録されません（自由に練習してOK）
+  <button id="pracReset">練習リセット</button>
+  <button id="pracExit">本番に戻る</button>
+</div>
 <div class="banner" id="banner"></div>
 
 <!-- 設定パネル -->
@@ -316,6 +332,7 @@
       <button data-atab="close">精算・締め</button>
       <button data-atab="void">取引取消</button>
     </div>
+    <button class="pracbtn" id="pracBtn">▶ 練習モード</button>
     <button class="aclose" id="adminClose">レジに戻る</button>
   </div>
 
@@ -483,6 +500,7 @@ let discount=0;                // 会計中の値引き（円・会計全体）
 let special={};                // id -> 特価(単価)。未設定は定価
 let clientId=null;             // 会計ごとの受付ID（冪等キー・再送信の二重登録を防ぐ）
 let RETURN=false;              // 返品モード
+let PRACTICE=false, pracSalesNet=0, pracFloat=0;   // 練習モード（送信せず画面内で完結）
 const yen=n=>'¥'+Number(n||0).toLocaleString('ja-JP');
 const prod=id=>PRODUCTS.find(x=>x.id===id);
 // 実効単価（特価があれば特価、無ければ定価）。返品時は常に定価。
@@ -505,6 +523,12 @@ function cacheProducts(){ try{ localStorage.setItem(PKEY, JSON.stringify(PRODUCT
 function loadCachedProducts(){ try{ return JSON.parse(localStorage.getItem(PKEY)||'[]'); }catch(e){ return []; } }
 
 function updateTodayDisplay(){
+  if(PRACTICE){
+    document.getElementById('todayAmt').textContent=yen(pracSalesNet);
+    document.getElementById('todayCt').textContent='練習中';
+    updatePendChip();
+    return;
+  }
   document.getElementById('todayAmt').textContent=yen(serverBase+pendingNet());
   const n=loadQueue().length;
   document.getElementById('todayCt').textContent = n ? ('未送信 '+n+'件') : '';
@@ -580,6 +604,7 @@ async function init(){
   scheduleFlush();
   window.addEventListener('online', function(){ updatePendChip(); flushQueue(); });
   window.addEventListener('offline', updatePendChip);
+  try{ if(localStorage.getItem('reji_practice')==='1') setPractice(true); }catch(e){}
 }
 document.getElementById('pendChip').onclick=flushQueue;
 
@@ -790,6 +815,12 @@ document.getElementById('confirmBtn').onclick=function(){
   if(RETURN){
     const amt=cartTotal();
     if(!window.confirm('返金 '+yen(amt)+' を記録します。よろしいですか？')) return;
+    if(PRACTICE){
+      applyEntryStock({kind:'refund',items:items}); pracSalesNet-=amt;
+      closePay(); clearCart(); renderGrid(); updateTodayDisplay();
+      toast('【練習】返品受付<br><span class="big">返金 '+yen(amt)+'</span>');
+      return;
+    }
     const entry={id:cid, kind:'refund', items:items, received:0, discount:0, total:amt, net:-amt, ts:Date.now()};
     enqueue(entry); applyEntryStock(entry);
     closePay(); clearCart(); renderGrid(); updateTodayDisplay();
@@ -801,6 +832,14 @@ document.getElementById('confirmBtn').onclick=function(){
     if(received>0 && received<total) return;
     const recv=received||total;
     const change=recv-total;
+    if(PRACTICE){
+      applyEntryStock({kind:'sale',items:items}); pracSalesNet+=total;
+      closePay(); clearCart(); renderGrid(); updateTodayDisplay();
+      const dm=disc>0?('（値引 '+yen(disc)+'）'):'';
+      toast('【練習】会計完了 '+yen(total)+dm+'<br><span class="big">お釣り '+yen(change)+'</span>');
+      showChangeCard(change);
+      return;
+    }
     const entry={id:cid, kind:'sale', items:items, received:recv, discount:disc, total:total, net:total, ts:Date.now()};
     enqueue(entry); applyEntryStock(entry);
     closePay(); clearCart(); renderGrid(); updateTodayDisplay();
@@ -854,6 +893,33 @@ function catSelectHtml(sel){return '<select class="pcat">'+['野菜','果物','�
 
 document.getElementById('gearBtn').onclick=function(){ admin.classList.add('on'); switchATab('prod'); };
 document.getElementById('adminClose').onclick=function(){ admin.classList.remove('on'); };
+
+/* ===== 練習モード ===== */
+function setPractice(on){
+  PRACTICE=on;
+  try{ localStorage.setItem('reji_practice', on?'1':''); }catch(e){}
+  document.body.classList.toggle('practice', on);
+  document.getElementById('pracBtn').textContent = on ? '■ 練習を終了' : '▶ 練習モード';
+  hideChangeCard();
+  if(on){
+    pracSalesNet=0; pracFloat=0; admin.classList.remove('on');
+    updateTodayDisplay(); renderGrid();
+    toast('【練習モード】開始<br>売上は記録されません。自由に練習してください');
+  }else{
+    pracSalesNet=0; pracFloat=0;
+    PRODUCTS=loadCachedProducts(); reapplyPendingStock(); renderGrid();  // 実在庫を即復元
+    updateTodayDisplay();
+    refreshProducts(); refreshSummary();   // オンラインなら最新に更新
+    toast('本番モードに戻りました');
+  }
+}
+document.getElementById('pracBtn').onclick=function(){ setPractice(!PRACTICE); };
+document.getElementById('pracExit').onclick=function(){ setPractice(false); };
+document.getElementById('pracReset').onclick=function(){
+  pracSalesNet=0; pracFloat=0; clearCart(); hideChangeCard();
+  updateTodayDisplay(); refreshProducts();
+  toast('練習データをリセットしました');
+};
 document.querySelector('.atabs').addEventListener('click',function(e){
   const b=e.target.closest('button'); if(b) switchATab(b.dataset.atab);
 });
@@ -903,6 +969,7 @@ function rowVals(row){
   };
 }
 async function saveRow(row,id){
+  if(PRACTICE){ toast('練習モードでは商品マスタを変更できません'); return; }
   const v=rowVals(row); if(!v.name){ toast('商品名を入れてください'); return; }
   const btn=row.querySelector('.psave'); btn.disabled=true; btn.textContent='…';
   try{
@@ -914,6 +981,7 @@ async function saveRow(row,id){
   finally{ btn.disabled=false; btn.textContent='保存'; }
 }
 async function delRow(id,name){
+  if(PRACTICE){ toast('練習モードでは商品マスタを変更できません'); return; }
   if(!window.confirm('「'+name+'」を商品マスタから削除します。よろしいですか？'))return;
   try{
     const r=await jsonp('deleteProduct',{id:id}); if(!r.ok)throw new Error(r.error||'削除失敗');
@@ -921,6 +989,7 @@ async function delRow(id,name){
   }catch(e){ toast('⚠ '+e.message); }
 }
 document.getElementById('npAdd').onclick=async function(){
+  if(PRACTICE){ toast('練習モードでは商品マスタを変更できません'); return; }
   const name=document.getElementById('npName').value.trim();
   if(!name){ toast('商品名を入れてください'); return; }
   const cat=document.getElementById('npCat').value;
@@ -938,6 +1007,7 @@ document.getElementById('npAdd').onclick=async function(){
 
 async function loadReport(){
   const box=document.getElementById('reportBox'); box.innerHTML='読み込み中…';
+  if(PRACTICE){ box.innerHTML='<div class="anote">練習モード中です。品目別の集計（実データ）は表示しません。練習の売上合計はヘッダに「'+yen(pracSalesNet)+'」と表示されています。</div>'; return; }
   try{
     const r=await jsonp('getReport'); if(!r.ok)throw new Error(r.error||'取得失敗');
     if(!r.items.length){ box.innerHTML='<div class="anote">本日の売上はまだありません。</div>'; return; }
@@ -968,6 +1038,7 @@ async function loadTx(){
   }catch(e){ box.innerHTML='<div class="anote">読み込みに失敗しました（'+e.message+'）</div>'; }
 }
 async function voidTx(txId){
+  if(PRACTICE){ toast('練習モードでは取消できません'); return; }
   if(!window.confirm('この取引を取り消します（'+txId+'）。\n明細・履歴から削除し、在庫を戻します。元に戻せません。'))return;
   try{
     const r=await jsonp('voidTransaction',{txId:txId}); if(!r.ok)throw new Error(r.error||'取消失敗');
@@ -1020,6 +1091,17 @@ const actualEditor=makeDenom(document.getElementById('actualDenom'), document.ge
 
 async function loadClose(){
   const warn=document.getElementById('closeWarn');
+  if(PRACTICE){
+    warn.className=''; warn.textContent='';
+    document.getElementById('closeBtn').disabled=false;
+    document.getElementById('closeResult').hidden=true;
+    document.getElementById('clSales').textContent=yen(pracSalesNet);
+    document.getElementById('clFloat').textContent=yen(pracFloat);
+    clTheoVal=pracFloat+pracSalesNet;
+    document.getElementById('clTheo').textContent=yen(clTheoVal);
+    updateOver();
+    return;
+  }
   const pend=loadQueue().length;
   if(pend>0){ warn.className='on'; warn.textContent='⚠ 未送信が'+pend+'件あります。ヘッダの「未送信」で送信してから締めてください（売上に反映されません）。'; }
   else{ warn.className=''; warn.textContent=''; }
@@ -1045,6 +1127,7 @@ async function loadClose(){
 }
 
 document.getElementById('floatSave').onclick=async function(){
+  if(PRACTICE){ pracFloat=floatEditor.total(); toast('【練習】釣銭準備金を設定'); loadClose(); return; }
   const btn=this; btn.disabled=true;
   try{
     const r=await jsonp('setFloat',{float:floatEditor.total(),floatBreak:JSON.stringify(floatEditor.breakdown())});
@@ -1055,6 +1138,13 @@ document.getElementById('floatSave').onclick=async function(){
 };
 
 document.getElementById('closeBtn').onclick=async function(){
+  if(PRACTICE){
+    const actual=actualEditor.total(); const over=actual-clTheoVal;
+    const res=document.getElementById('closeResult'); res.hidden=false;
+    res.innerHTML='【練習】締め<br>現金売上 '+yen(pracSalesNet)+' ／ 理論在高 '+yen(clTheoVal)+' ／ 実在高 '+yen(actual)+' ／ 過不足 <b>'+fmtOver(over)+'</b>';
+    toast('【練習】締めました（過不足 '+fmtOver(over)+'）');
+    return;
+  }
   if(loadQueue().length>0){ toast('未送信を送信してから締めてください'); return; }
   const actual=actualEditor.total();
   const over=actual-clTheoVal;
