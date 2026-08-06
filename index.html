@@ -192,6 +192,12 @@
   body.ret .payrow.total, body.ret .payrow.recv, body.ret .payrow.change,
   body.ret .quick, body.ret .keys{display:none;}
 
+  /* ---- 未送信チップ ---- */
+  .pendchip{background:#E8863B; color:#fff; border:0; border-radius:10px; padding:9px 14px;
+    font-weight:800; font-size:14px; line-height:1;}
+  .pendchip.off{background:#8a8a8a;}
+  .pendchip:active{transform:translateY(1px);}
+
   /* ---- 設定パネル ---- */
   .gearbtn{background:#fff; color:var(--leaf-d); border:2px solid #fff; border-radius:10px;
     padding:8px 12px; font-size:16px; line-height:1;}
@@ -259,6 +265,7 @@
     <span class="amt" id="todayAmt">¥—</span>
     <span class="ct" id="todayCt"></span>
   </div>
+  <button class="pendchip" id="pendChip" hidden>未送信 0件</button>
   <button class="gearbtn" id="gearBtn" title="設定">⚙</button>
   <button class="modebtn" id="modeBtn">返品</button>
 </header>
@@ -392,7 +399,7 @@
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbzyyC1uO1KMSwuYui11FBT_ilMaFTQ-zs-Fb0k37YXQ63Ftk6FJJjLsqKCv3VV911eIiQ/exec';
 
 /* ===== 通信（JSONP） ===== */
-function jsonp(action, params){
+function jsonp(action, params, timeoutMs){
   return new Promise(function(resolve,reject){
     if(!GAS_URL || GAS_URL.indexOf('/exec')===-1){
       reject(new Error('GAS_URL が未設定です')); return;
@@ -400,7 +407,7 @@ function jsonp(action, params){
     const cb='cb_'+Date.now()+'_'+Math.floor(Math.random()*100000);
     const s=document.createElement('script');
     const q=new URLSearchParams(Object.assign({action:action,callback:cb},params||{}));
-    const timer=setTimeout(function(){cleanup();reject(new Error('通信タイムアウト'));},30000);
+    const timer=setTimeout(function(){cleanup();reject(new Error('通信タイムアウト'));},timeoutMs||30000);
     function cleanup(){clearTimeout(timer);delete window[cb];s.remove();}
     window[cb]=function(data){cleanup();resolve(data);};
     s.onerror=function(){cleanup();reject(new Error('通信に失敗しました'));};
@@ -425,19 +432,98 @@ function unitOf(id){const p=prod(id); if(!p)return 0; if(!RETURN && special[id]!
 // 在庫追跡商品のこれ以上追加できる残数（無制限は Infinity）
 function availOf(id){const p=prod(id); if(!p||p.stock==null)return Infinity; return Math.max(0,p.stock-(cart[id]||0));}
 
+/* ===== オフライン対応：送信キュー＋商品キャッシュ ===== */
+const QKEY='reji_pending_v1', PKEY='reji_products_v1';
+let serverBase=0;          // サーバ確定済みの本日売上
+let flushing=false, flushTimer=null;
+
+function loadQueue(){ try{ return JSON.parse(localStorage.getItem(QKEY)||'[]'); }catch(e){ return []; } }
+function saveQueue(q){ try{ localStorage.setItem(QKEY, JSON.stringify(q)); }catch(e){} }
+function enqueue(entry){ const q=loadQueue(); q.push(entry); saveQueue(q); }
+function dequeueById(id){ saveQueue(loadQueue().filter(e=>e.id!==id)); }
+function pendingNet(){ return loadQueue().reduce((s,e)=>s+(e.net||0),0); }
+
+function cacheProducts(){ try{ localStorage.setItem(PKEY, JSON.stringify(PRODUCTS)); }catch(e){} }
+function loadCachedProducts(){ try{ return JSON.parse(localStorage.getItem(PKEY)||'[]'); }catch(e){ return []; } }
+
+function updateTodayDisplay(){
+  document.getElementById('todayAmt').textContent=yen(serverBase+pendingNet());
+  const n=loadQueue().length;
+  document.getElementById('todayCt').textContent = n ? ('未送信 '+n+'件') : '';
+  updatePendChip();
+}
+function updatePendChip(){
+  const n=loadQueue().length;
+  const chip=document.getElementById('pendChip');
+  if(!chip) return;
+  if(n>0){
+    chip.hidden=false;
+    chip.textContent=(navigator.onLine?'未送信 ':'📴 オフライン ')+n+'件 ▸送信';
+    chip.classList.toggle('off', !navigator.onLine);
+  }else{ chip.hidden=true; }
+}
+
+/* キューぶんの在庫を表示に反映（販売:-数量 / 返品:+数量） */
+function applyEntryStock(entry){
+  entry.items.forEach(function(it){
+    const p=prod(it.id); if(!p||p.stock==null)return;
+    const sign=(entry.kind==='refund')?+1:-1;
+    p.stock=Math.max(0, p.stock + sign*it.qty);
+  });
+}
+function reapplyPendingStock(){ loadQueue().forEach(applyEntryStock); }
+
+async function flushQueue(){
+  if(flushing) return;
+  if(!loadQueue().length){ updatePendChip(); return; }
+  flushing=true; updatePendChip();
+  let failed=0;
+  try{
+    for(const e of loadQueue()){
+      const action=(e.kind==='refund')?'refund':'checkout';
+      const params=(e.kind==='refund')
+        ? {items:JSON.stringify(e.items), clientId:e.id}
+        : {items:JSON.stringify(e.items), received:e.received, discount:e.discount, clientId:e.id};
+      try{
+        const res=await jsonp(action, params, 12000);
+        if(res && res.ok){ dequeueById(e.id); }                 // 成功（重複含む）→ 除去
+        else if(res && res.ok===false){ dequeueById(e.id); failed++;
+          toast('⚠ 送信エラー：'+(res.error||'不明')+'（'+yen(e.total)+'）手元に控えてください'); }
+        else { break; }
+      }catch(err){ break; }                                     // 通信失敗 → 中断、後で再試行
+    }
+  } finally {
+    flushing=false; updatePendChip();
+    try{ const s=await jsonp('getSummary',{},12000); if(s.ok){ serverBase=s.salesTotal; } }catch(e){}
+    try{ const r=await jsonp('getProducts',{},12000); if(r.ok){ PRODUCTS=r.products; cacheProducts(); reapplyPendingStock(); renderGrid(); } }catch(e){}
+    updateTodayDisplay();
+    if(!loadQueue().length && !failed) { /* 全送信完了 */ }
+  }
+}
+function scheduleFlush(){ if(!flushTimer) flushTimer=setInterval(flushQueue, 20000); }
+
 /* ===== 起動 ===== */
 init();
 async function init(){
+  PRODUCTS=loadCachedProducts(); reapplyPendingStock(); renderGrid(); updateTodayDisplay();
   try{
     const res=await jsonp('getProducts');
     if(!res.ok) throw new Error(res.error||'商品取得に失敗');
-    PRODUCTS=res.products;
-    renderGrid();
-    refreshSummary();
+    PRODUCTS=res.products; cacheProducts(); reapplyPendingStock(); renderGrid();
+    await refreshSummary();
   }catch(e){
-    showBanner(e.message+'（index.html の GAS_URL を確認してください）');
+    if(PRODUCTS.length){
+      showBanner('オフライン中：会計は端末に記録し、電波が戻り次第、自動で送信します。');
+    }else{
+      showBanner('商品を読み込めませんでした。一度オンラインで開いてください（'+e.message+'）');
+    }
   }
+  flushQueue();
+  scheduleFlush();
+  window.addEventListener('online', function(){ updatePendChip(); flushQueue(); });
+  window.addEventListener('offline', updatePendChip);
 }
+document.getElementById('pendChip').onclick=flushQueue;
 
 /* ===== 商品グリッド ===== */
 function renderGrid(){
@@ -500,7 +586,7 @@ function clearCart(){ cart={}; special={}; clientId=null; renderCart(); }
 
 /* 会計/返品後に在庫表示を最新化 */
 async function refreshProducts(){
-  try{ const r=await jsonp('getProducts'); if(r.ok){ PRODUCTS=r.products; renderGrid(); } }catch(e){}
+  try{ const r=await jsonp('getProducts'); if(r.ok){ PRODUCTS=r.products; cacheProducts(); reapplyPendingStock(); renderGrid(); } }catch(e){}
 }
 
 function cartTotal(){
@@ -619,41 +705,33 @@ overlay.querySelector('.keys').addEventListener('click',function(e){
   updatePay();
 });
 
-/* ===== 会計確定 ===== */
-document.getElementById('confirmBtn').onclick=async function(){
-  const btn=this;
+/* ===== 会計確定（オフラインファースト：即完了→裏で送信） ===== */
+document.getElementById('confirmBtn').onclick=function(){
   const items=Object.keys(cart).map(id=>({id:id,qty:cart[id],price:unitOf(id)}));
   if(!items.length)return;
-  const labelBase=RETURN?'返品を確定':'会計を確定';
-  btn.disabled=true; btn.textContent='送信中…';
-  try{
-    if(RETURN){
-      const amt=cartTotal();
-      if(!window.confirm('返金 '+yen(amt)+' を記録します。よろしいですか？')){
-        btn.disabled=false; btn.textContent=labelBase; return;
-      }
-      const res=await jsonp('refund',{items:JSON.stringify(items),clientId:clientId||''});
-      if(!res.ok)throw new Error(res.error||'返品に失敗しました');
-      closePay(); clearCart(); refreshSummary(); refreshProducts();
-      toast((res.duplicate?'記録済みの返品です<br>':'返品完了<br>')+'<span class="big">返金 '+yen(res.refund)+'</span>');
-    }else{
-      const sub=cartTotal();
-      const disc=Math.min(discount,sub);
-      const total=sub-disc;
-      if(received>0 && received<total){ btn.disabled=false; btn.textContent=labelBase; return; }
-      const res=await jsonp('checkout',{items:JSON.stringify(items),received:received||total,discount:disc,clientId:clientId||''});
-      if(!res.ok)throw new Error(res.error||'会計に失敗しました');
-      closePay(); clearCart(); refreshSummary(); refreshProducts();
-      const chg=res.change||0;
-      const dmsg=res.discount>0?('（値引 '+yen(res.discount)+'）'):'';
-      const head=res.duplicate?'記録済みの会計です ':'会計完了 ';
-      toast(head+yen(res.total)+dmsg+'<br><span class="big">お釣り '+yen(chg)+'</span>');
-    }
-  }catch(e){
-    toast('⚠ '+e.message);
-  }finally{
-    btn.disabled=false; btn.textContent=labelBase;
+  const cid=clientId||('C'+Date.now()+'-'+Math.floor(Math.random()*1e6));
+
+  if(RETURN){
+    const amt=cartTotal();
+    if(!window.confirm('返金 '+yen(amt)+' を記録します。よろしいですか？')) return;
+    const entry={id:cid, kind:'refund', items:items, received:0, discount:0, total:amt, net:-amt, ts:Date.now()};
+    enqueue(entry); applyEntryStock(entry);
+    closePay(); clearCart(); renderGrid(); updateTodayDisplay();
+    toast('返品受付<br><span class="big">返金 '+yen(amt)+'</span>');
+  }else{
+    const sub=cartTotal();
+    const disc=Math.min(discount,sub);
+    const total=sub-disc;
+    if(received>0 && received<total) return;
+    const recv=received||total;
+    const change=recv-total;
+    const entry={id:cid, kind:'sale', items:items, received:recv, discount:disc, total:total, net:total, ts:Date.now()};
+    enqueue(entry); applyEntryStock(entry);
+    closePay(); clearCart(); renderGrid(); updateTodayDisplay();
+    const dmsg=disc>0?('（値引 '+yen(disc)+'）'):'';
+    toast('会計完了 '+yen(total)+dmsg+'<br><span class="big">お釣り '+yen(change)+'</span>');
   }
+  flushQueue();   // 送信はバックグラウンドで（待たせない）
 };
 
 /* ===== 特価（1品ごとの見切り）エディタ ===== */
@@ -818,15 +896,10 @@ async function voidTx(txId){
   }catch(e){ toast('⚠ '+e.message); }
 }
 
-/* ===== 本日の売上 ===== */
+/* ===== 本日の売上（サーバ確定＋未送信） ===== */
 async function refreshSummary(){
-  try{
-    const s=await jsonp('getSummary');
-    if(s.ok){
-      document.getElementById('todayAmt').textContent=yen(s.salesTotal);
-      document.getElementById('todayCt').textContent=s.txCount+'件 / '+s.itemCount+'点';
-    }
-  }catch(e){/* 売上表示は失敗しても会計は継続 */}
+  try{ const s=await jsonp('getSummary'); if(s.ok){ serverBase=s.salesTotal; } }catch(e){/* オフラインでも継続 */}
+  updateTodayDisplay();
 }
 
 /* ===== ユーティリティ ===== */
