@@ -251,6 +251,16 @@
   .rbox th,.txlist th{background:var(--leaf); color:#fff; font-size:13px;}
   .rbox td:first-child,.rbox th:first-child,.txlist td:first-child,.txlist th:first-child{text-align:left;}
   .rtot{font-weight:800; font-size:16px; margin-top:12px; text-align:right;}
+
+  /* ---- 期間集計・CSV ---- */
+  .rangebar{display:flex; gap:8px; align-items:center; flex-wrap:wrap; background:#fff;
+    border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:12px;}
+  .rangebar label{font-weight:700; font-size:14px;}
+  .rangebar input[type=date]{border:2px solid var(--line); border-radius:8px; padding:8px; font-size:15px;}
+  .rqbtn{background:var(--bg); border:2px solid var(--line); border-radius:8px; padding:9px 12px; font-weight:800; font-size:13px;}
+  .csvbar{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px;}
+  .csvbar .csvlb{font-size:13px; color:var(--sub); font-weight:700;}
+  .csvbar button{background:var(--proc); color:#fff; border:0; border-radius:8px; padding:9px 14px; font-weight:800; font-size:13px;}
   .tvoid{background:#fff; color:var(--danger); border:2px solid var(--danger); border-radius:8px; padding:7px 12px; font-weight:800;}
   .tkind.ret{color:var(--danger); font-weight:800;}
 
@@ -287,6 +297,39 @@
   .changecard .cchip b{color:var(--ink);}
   .changecard .cc-hint{font-size:11px; color:var(--sub); margin-top:10px;}
 
+  /* ---- レシート／領収書 ---- */
+  .rsheet{max-width:420px;}
+  .rtabs{display:flex; gap:8px; margin-bottom:10px;}
+  .rtabs button{flex:1; padding:10px; border-radius:9px; font-weight:800; font-size:14px;
+    background:#fff; border:2px solid var(--line); color:var(--ink);}
+  .rtabs button.on{background:var(--leaf); border-color:var(--leaf); color:#fff;}
+  .rcfields{display:flex; flex-direction:column; gap:8px; margin-bottom:10px;}
+  .rcfields label{font-size:13px; font-weight:700; display:flex; gap:8px; align-items:center;}
+  .rcfields input{flex:1; border:2px solid var(--line); border-radius:8px; padding:9px; font-size:15px;}
+  .receiptdoc{background:#fff; border:1px dashed var(--line); border-radius:10px; padding:16px 18px;
+    font-variant-numeric:tabular-nums;}
+  .receiptdoc .rc-store{text-align:center; font-weight:900; font-size:18px;}
+  .receiptdoc .rc-title{text-align:center; font-weight:800; font-size:14px; color:var(--sub); margin-bottom:2px;}
+  .receiptdoc .rc-time{text-align:center; font-size:12px; color:var(--sub); margin-bottom:10px;}
+  .receiptdoc .rc-to{font-size:16px; font-weight:800; margin-top:6px;}
+  .receiptdoc .rc-big{font-size:30px; font-weight:900; text-align:center; margin:6px 0;}
+  .receiptdoc .rc-note{text-align:center; font-size:13px; color:var(--sub);}
+  .receiptdoc .rc-hr{border-top:1px dashed var(--line); margin:10px 0;}
+  .receiptdoc .rc-line,.receiptdoc .rc-row{display:flex; justify-content:space-between; padding:3px 0; font-size:14px;}
+  .receiptdoc .rc-line small{color:var(--sub);}
+  .receiptdoc .rc-total{font-weight:900; font-size:18px; border-top:1px solid var(--line); margin-top:4px; padding-top:6px;}
+  .receiptdoc .rc-stamp{font-size:11px; color:var(--danger); margin-top:8px; text-align:center;}
+  .receiptdoc .rc-thanks{text-align:center; font-size:13px; margin-top:12px; color:var(--sub);}
+  .rcbtns{display:flex; gap:10px; margin-top:14px;}
+  .rcbtns .confirm{flex:1;}
+
+  /* 印刷：レシートだけ出す */
+  @media print{
+    body.printing *{visibility:hidden !important;}
+    body.printing #receiptDoc, body.printing #receiptDoc *{visibility:visible !important;}
+    body.printing #receiptDoc{position:absolute; left:0; top:0; width:100%; border:0; padding:0;}
+  }
+
   /* スマホ */
   @media(max-width:760px){
     main{grid-template-columns:1fr; grid-template-rows:1fr auto;}
@@ -311,6 +354,7 @@
     <span class="ct" id="todayCt"></span>
   </div>
   <button class="pendchip" id="pendChip" hidden>未送信 0件</button>
+  <button class="gearbtn" id="receiptBtn" title="直前のレシート" hidden>🧾</button>
   <button class="gearbtn" id="gearBtn" title="設定">⚙</button>
   <button class="modebtn" id="modeBtn">返品</button>
 </header>
@@ -328,7 +372,7 @@
     <span class="atitle">⚙ 設定</span>
     <div class="atabs">
       <button data-atab="prod" class="on">商品マスタ</button>
-      <button data-atab="report">本日の売上</button>
+      <button data-atab="report">売上・集計</button>
       <button data-atab="close">精算・締め</button>
       <button data-atab="void">取引取消</button>
     </div>
@@ -349,7 +393,22 @@
   </div>
 
   <div class="apanel" id="apReport" hidden>
-    <div id="reportBox" class="rbox">読み込み中…</div>
+    <div class="rangebar">
+      <label>期間 <input type="date" id="rgFrom"></label>
+      <span>〜</span>
+      <label><input type="date" id="rgTo"></label>
+      <button class="rqbtn" id="rgToday">今日</button>
+      <button class="rqbtn" id="rgMonth">今月</button>
+      <button class="rqbtn" id="rgPrev">先月</button>
+      <button class="badd" id="rgGo">集計</button>
+    </div>
+    <div class="csvbar" id="csvBar" hidden>
+      <span class="csvlb">CSV書き出し：</span>
+      <button id="csvDaily">日別</button>
+      <button id="csvItems">品目別</button>
+      <button id="csvTx">取引明細</button>
+    </div>
+    <div id="reportBox" class="rbox">期間を選んで「集計」を押してください。</div>
   </div>
 
   <div class="apanel" id="apClose" hidden>
@@ -444,6 +503,26 @@
 
 <div class="toast" id="toast"></div>
 <div class="changecard" id="changeCard" hidden></div>
+
+<!-- レシート／領収書 -->
+<div class="overlay" id="receiptOverlay">
+  <div class="sheet rsheet">
+    <div class="grab"></div>
+    <div class="rtabs">
+      <button id="rcReceipt" class="on">レシート</button>
+      <button id="rcInvoice">領収書</button>
+    </div>
+    <div class="rcfields" id="rcFields" hidden>
+      <label>宛名 <input id="rcName" placeholder="上様"></label>
+      <label>但し書き <input id="rcNote" placeholder="お品代"></label>
+    </div>
+    <div id="receiptDoc" class="receiptdoc"></div>
+    <div class="rcbtns">
+      <button class="confirm" id="rcPrint">印刷 / PDF保存</button>
+      <button class="cancel" id="rcClose">閉じる</button>
+    </div>
+  </div>
+</div>
 
 <!-- 特価（1品ごとの見切り値引き）オーバーレイ -->
 <div class="overlay" id="priceOverlay">
@@ -744,6 +823,62 @@ function setDiscActive(v){
   });
 }
 
+/* ===== レシート／領収書 ===== */
+let lastSale=null;
+const STORE='伊都国即売会';
+function captureSale(items, disc, total, recv, change, practice){
+  lastSale={
+    lines: items.map(function(it){ const p=prod(it.id); return {name:p?p.name:it.id, qty:it.qty, unit:it.price, amount:it.price*it.qty}; }),
+    subtotal: items.reduce(function(s,it){return s+it.price*it.qty;},0),
+    discount: disc, total: total, received: recv, change: change,
+    time: (function(){ const d=new Date(); return d.getFullYear()+'/'+('0'+(d.getMonth()+1)).slice(-2)+'/'+('0'+d.getDate()).slice(-2)+' '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); })(),
+    practice: !!practice
+  };
+  document.getElementById('receiptBtn').hidden=false;
+}
+const receiptOverlay=document.getElementById('receiptOverlay');
+let rcMode='receipt';
+function openReceipt(){ if(!lastSale)return; rcMode='receipt'; setRcMode(); receiptOverlay.classList.add('on'); }
+function setRcMode(){
+  document.getElementById('rcReceipt').classList.toggle('on', rcMode==='receipt');
+  document.getElementById('rcInvoice').classList.toggle('on', rcMode==='invoice');
+  document.getElementById('rcFields').hidden=(rcMode!=='invoice');
+  renderReceipt();
+}
+function renderReceipt(){
+  const s=lastSale; if(!s)return;
+  const invoice=(rcMode==='invoice');
+  let h='<div class="rc-store">'+STORE+'</div>';
+  h+='<div class="rc-title">'+(invoice?'領収書':'レシート')+(s.practice?'（練習）':'')+'</div>';
+  h+='<div class="rc-time">'+s.time+'</div>';
+  if(invoice){
+    const nm=(document.getElementById('rcName').value||'上様');
+    const note=(document.getElementById('rcNote').value||'お品代');
+    h+='<div class="rc-to">'+esc(nm)+' 様</div>';
+    h+='<div class="rc-big">¥'+s.total.toLocaleString('ja-JP')+'</div>';
+    h+='<div class="rc-note">但し '+esc(note)+' として</div><div class="rc-hr"></div>';
+  }
+  h+='<div class="rc-lines">';
+  s.lines.forEach(function(l){
+    h+='<div class="rc-line"><span>'+esc(l.name)+' <small>'+yen(l.unit)+'×'+l.qty+'</small></span><span>'+yen(l.amount)+'</span></div>';
+  });
+  h+='</div><div class="rc-hr"></div>';
+  if(s.discount>0){ h+='<div class="rc-row"><span>小計</span><span>'+yen(s.subtotal)+'</span></div>'; h+='<div class="rc-row"><span>値引き</span><span>-'+yen(s.discount)+'</span></div>'; }
+  h+='<div class="rc-row rc-total"><span>合計</span><span>'+yen(s.total)+'</span></div>';
+  h+='<div class="rc-row"><span>お預り</span><span>'+yen(s.received)+'</span></div>';
+  h+='<div class="rc-row"><span>お釣り</span><span>'+yen(s.change)+'</span></div>';
+  if(invoice && s.total>=50000) h+='<div class="rc-stamp">※5万円以上は収入印紙が必要です</div>';
+  h+='<div class="rc-thanks">ありがとうございました</div>';
+  document.getElementById('receiptDoc').innerHTML=h;
+}
+document.getElementById('receiptBtn').onclick=openReceipt;
+document.getElementById('rcClose').onclick=function(){ receiptOverlay.classList.remove('on'); };
+document.getElementById('rcReceipt').onclick=function(){ rcMode='receipt'; setRcMode(); };
+document.getElementById('rcInvoice').onclick=function(){ rcMode='invoice'; setRcMode(); };
+document.getElementById('rcName').addEventListener('input',renderReceipt);
+document.getElementById('rcNote').addEventListener('input',renderReceipt);
+document.getElementById('rcPrint').onclick=function(){ document.body.classList.add('printing'); window.print(); setTimeout(function(){document.body.classList.remove('printing');},500); };
+
 /* ===== 釣銭シミュレーター（金種内訳） ===== */
 const CHDENOMS=[10000,5000,1000,500,100,50,10,5,1];
 function changeBreak(amt){ let r=Math.max(0,Math.floor(amt)),out=[]; CHDENOMS.forEach(function(d){ const c=Math.floor(r/d); if(c>0){ out.push({d:d,c:c}); r-=d*c; } }); return out; }
@@ -834,6 +969,7 @@ document.getElementById('confirmBtn').onclick=function(){
     const change=recv-total;
     if(PRACTICE){
       applyEntryStock({kind:'sale',items:items}); pracSalesNet+=total;
+      captureSale(items, disc, total, recv, change, true);
       closePay(); clearCart(); renderGrid(); updateTodayDisplay();
       const dm=disc>0?('（値引 '+yen(disc)+'）'):'';
       toast('【練習】会計完了 '+yen(total)+dm+'<br><span class="big">お釣り '+yen(change)+'</span>');
@@ -842,6 +978,7 @@ document.getElementById('confirmBtn').onclick=function(){
     }
     const entry={id:cid, kind:'sale', items:items, received:recv, discount:disc, total:total, net:total, ts:Date.now()};
     enqueue(entry); applyEntryStock(entry);
+    captureSale(items, disc, total, recv, change, false);
     closePay(); clearCart(); renderGrid(); updateTodayDisplay();
     const dmsg=disc>0?('（値引 '+yen(disc)+'）'):'';
     toast('会計完了 '+yen(total)+dmsg+'<br><span class="big">お釣り '+yen(change)+'</span>');
@@ -930,7 +1067,7 @@ function switchATab(name){
   document.getElementById('apClose').hidden=(name!=='close');
   document.getElementById('apVoid').hidden=(name!=='void');
   if(name==='prod') loadAdminProducts();
-  else if(name==='report') loadReport();
+  else if(name==='report') openPeriod();
   else if(name==='close') loadClose();
   else if(name==='void') loadTx();
 }
@@ -1005,21 +1142,71 @@ document.getElementById('npAdd').onclick=async function(){
   finally{ btn.disabled=false; }
 };
 
-async function loadReport(){
-  const box=document.getElementById('reportBox'); box.innerHTML='読み込み中…';
-  if(PRACTICE){ box.innerHTML='<div class="anote">練習モード中です。品目別の集計（実データ）は表示しません。練習の売上合計はヘッダに「'+yen(pracSalesNet)+'」と表示されています。</div>'; return; }
+let lastPeriod=null;
+function ymdLocal(dt){ return dt.getFullYear()+'-'+('0'+(dt.getMonth()+1)).slice(-2)+'-'+('0'+dt.getDate()).slice(-2); }
+function openPeriod(){
+  const f=document.getElementById('rgFrom'), t=document.getElementById('rgTo');
+  if(!f.value || !t.value){ const today=ymdLocal(new Date()); f.value=today; t.value=today; }
+  loadPeriod();
+}
+document.getElementById('rgGo').onclick=loadPeriod;
+document.getElementById('rgToday').onclick=function(){ const d=ymdLocal(new Date()); rgFrom.value=d; rgTo.value=d; loadPeriod(); };
+document.getElementById('rgMonth').onclick=function(){ const n=new Date(); rgFrom.value=ymdLocal(new Date(n.getFullYear(),n.getMonth(),1)); rgTo.value=ymdLocal(new Date(n.getFullYear(),n.getMonth()+1,0)); loadPeriod(); };
+document.getElementById('rgPrev').onclick=function(){ const n=new Date(); rgFrom.value=ymdLocal(new Date(n.getFullYear(),n.getMonth()-1,1)); rgTo.value=ymdLocal(new Date(n.getFullYear(),n.getMonth(),0)); loadPeriod(); };
+
+async function loadPeriod(){
+  const box=document.getElementById('reportBox');
+  document.getElementById('csvBar').hidden=true;
+  if(PRACTICE){ box.innerHTML='<div class="anote">練習モード中は集計（実データ）を表示しません。</div>'; return; }
+  const from=document.getElementById('rgFrom').value, to=document.getElementById('rgTo').value;
+  if(!from||!to){ box.innerHTML='<div class="anote">期間を選んでください。</div>'; return; }
+  box.innerHTML='集計中…';
   try{
-    const r=await jsonp('getReport'); if(!r.ok)throw new Error(r.error||'取得失敗');
-    if(!r.items.length){ box.innerHTML='<div class="anote">本日の売上はまだありません。</div>'; return; }
-    let h='<table><tr><th>商品</th><th>売数</th><th>金額</th><th>返品</th><th>正味</th></tr>';
-    r.items.forEach(function(x){
-      h+='<tr><td>'+esc(x.name)+'</td><td>'+x.soldQty+'</td><td>'+yen(x.soldAmt)+'</td><td>'+(x.retQty?('-'+x.retQty):'—')+'</td><td>'+yen(x.netAmt)+'</td></tr>';
-    });
-    h+='</table>';
-    h+='<div class="rtot">合計 '+yen(r.totalAmt)+'（正味 '+r.totalQty+'点'+(r.totalReturn?('／返品 '+yen(r.totalReturn)):'')+'）</div>';
+    const r=await jsonp('getPeriod',{from:from,to:to}); if(!r.ok)throw new Error(r.error||'取得失敗');
+    lastPeriod=r;
+    let h='<div class="rtot">期間 '+r.from+' 〜 '+r.to+'<br>売上合計 '+yen(r.totalSales)
+      +'（取引 '+r.totalTx+'件／'+r.totalQty+'点'+(r.totalRefund?('／返品 '+yen(r.totalRefund)):'')+'）</div>';
+    if(r.daily.length){
+      h+='<div class="ch2">日別</div><table><tr><th>日付</th><th>件数</th><th>点数</th><th>返金</th><th>売上</th></tr>';
+      r.daily.forEach(function(d){ h+='<tr><td>'+d.date+'</td><td>'+d.tx+'</td><td>'+d.qty+'</td><td>'+(d.refund?('-'+yen(d.refund)):'—')+'</td><td>'+yen(d.sales)+'</td></tr>'; });
+      h+='</table>';
+    }
+    if(r.items.length){
+      h+='<div class="ch2">品目別</div><table><tr><th>商品</th><th>売数</th><th>金額</th><th>返品</th><th>正味</th></tr>';
+      r.items.forEach(function(x){ h+='<tr><td>'+esc(x.name)+'</td><td>'+x.soldQty+'</td><td>'+yen(x.soldAmt)+'</td><td>'+(x.retQty?('-'+x.retQty):'—')+'</td><td>'+yen(x.netAmt)+'</td></tr>'; });
+      h+='</table>';
+    }
+    if(!r.daily.length && !r.items.length) h+='<div class="anote">この期間の売上はありません。</div>';
     box.innerHTML=h;
+    document.getElementById('csvBar').hidden=!(r.daily.length||r.items.length||r.tx.length);
   }catch(e){ box.innerHTML='<div class="anote">読み込みに失敗しました（'+e.message+'）</div>'; }
 }
+
+/* CSV書き出し */
+function csvCell(v){ v=(v==null?'':String(v)); return /[",\r\n]/.test(v)?('"'+v.replace(/"/g,'""')+'"'):v; }
+function downloadCSV(name, rows){
+  const csv=rows.map(function(r){return r.map(csvCell).join(',');}).join('\r\n');
+  const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'});   // BOM付き＝Excelで文字化けしない
+  const url=URL.createObjectURL(blob), a=document.createElement('a');
+  a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){URL.revokeObjectURL(url);},1000);
+}
+function periodSuffix(){ return lastPeriod ? (lastPeriod.from+'_'+lastPeriod.to) : ''; }
+document.getElementById('csvDaily').onclick=function(){
+  if(!lastPeriod)return; const rows=[['日付','取引件数','点数','返金','売上']];
+  lastPeriod.daily.forEach(function(d){ rows.push([d.date,d.tx,d.qty,d.refund,d.sales]); });
+  downloadCSV('売上_日別_'+periodSuffix()+'.csv', rows);
+};
+document.getElementById('csvItems').onclick=function(){
+  if(!lastPeriod)return; const rows=[['商品ID','商品名','カテゴリ','売数','売上金額','返品数','返品金額','正味数','正味金額']];
+  lastPeriod.items.forEach(function(x){ rows.push([x.id,x.name,x.category,x.soldQty,x.soldAmt,x.retQty,x.retAmt,x.netQty,x.netAmt]); });
+  downloadCSV('売上_品目別_'+periodSuffix()+'.csv', rows);
+};
+document.getElementById('csvTx').onclick=function(){
+  if(!lastPeriod)return; const rows=[['日付','時刻','取引ID','区分','点数','小計','値引き','合計']];
+  lastPeriod.tx.forEach(function(t){ rows.push([t.date,t.time,t.txId,t.kind,t.count,t.subtotal,t.discount,t.total]); });
+  downloadCSV('売上_取引明細_'+periodSuffix()+'.csv', rows);
+};
 
 async function loadTx(){
   const box=document.getElementById('txList'); box.innerHTML='読み込み中…';
