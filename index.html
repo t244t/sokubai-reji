@@ -358,14 +358,15 @@
 
     /* ヘッダをコンパクトに（縦折り返し防止） */
     header{padding:8px 12px; gap:8px; flex-wrap:wrap;}
-    .brand{flex:1; min-width:0;}
+    .brand{flex:0 0 100%; min-width:0;}
     .brand .eb{display:none;}
-    .brand h1{font-size:16px; white-space:nowrap;}
-    .today{padding:5px 10px; gap:6px; border-radius:10px; white-space:nowrap;}
+    .brand h1{font-size:17px; white-space:nowrap;}
+    .today{margin-left:0; margin-right:auto; padding:5px 10px; gap:6px; border-radius:10px; white-space:nowrap;}
     .today .lb{font-size:10px;}
     .today .amt{font-size:16px;}
     .today .ct{display:none;}
     .gearbtn{padding:8px 10px; font-size:15px;}
+    .modebtn{padding:8px 12px; font-size:13px;}
     .pracbtn{padding:8px 10px; font-size:13px;}
     .pendchip,.holdchip{padding:7px 9px; font-size:12px;}
 
