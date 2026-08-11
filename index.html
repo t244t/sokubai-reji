@@ -209,6 +209,25 @@
     font-weight:800; font-size:14px; line-height:1;}
   .pendchip.off{background:#8a8a8a;}
   .pendchip:active{transform:translateY(1px);}
+  .holdchip{background:#5b7fb4; color:#fff; border:0; border-radius:10px; padding:9px 14px;
+    font-weight:800; font-size:14px; line-height:1;}
+  .holdchip:active{transform:translateY(1px);}
+  .holdbtn{width:100%; margin-top:8px; padding:14px; border-radius:12px; font-size:16px; font-weight:800;
+    background:#fff; color:#3a5a86; border:2px solid #5b7fb4;}
+  .holdbtn:disabled{opacity:.4;}
+  .hf{display:flex; flex-direction:column; gap:10px; margin:6px 0 10px;}
+  .hf label{display:flex; flex-direction:column; gap:4px; font-size:13px; font-weight:700; color:var(--sub);}
+  .hf input{border:2px solid var(--line); border-radius:9px; padding:11px; font-size:16px; color:var(--ink);}
+  .hf .req{color:var(--danger); font-size:11px;}
+  .holdslist{display:flex; flex-direction:column; gap:10px; max-height:60vh; overflow:auto; margin-bottom:12px;}
+  .hcard{background:#fff; border:1px solid var(--line); border-left:5px solid #5b7fb4; border-radius:11px; padding:12px 14px;}
+  .hcard .hname{font-weight:800; font-size:16px;}
+  .hcard .hmeta{font-size:12px; color:var(--sub); margin:3px 0;}
+  .hcard .hitems{font-size:13px; color:var(--ink); margin:4px 0;}
+  .hcard .hfoot{display:flex; align-items:center; gap:8px; margin-top:8px; flex-wrap:wrap;}
+  .hcard .hamt{font-weight:800; font-size:18px; margin-right:auto; font-variant-numeric:tabular-nums;}
+  .hcard .hpay{background:var(--leaf); color:#fff; border:0; border-radius:9px; padding:11px 18px; font-weight:800;}
+  .hcard .hcancel{background:#fff; color:var(--danger); border:2px solid var(--danger); border-radius:9px; padding:9px 14px; font-weight:800;}
 
   /* ---- 設定パネル ---- */
   .gearbtn{background:#fff; color:var(--leaf-d); border:2px solid #fff; border-radius:10px;
@@ -354,6 +373,7 @@
     <span class="ct" id="todayCt"></span>
   </div>
   <button class="pendchip" id="pendChip" hidden>未送信 0件</button>
+  <button class="holdchip" id="holdChip" hidden>取置 0件</button>
   <button class="gearbtn" id="receiptBtn" title="直前のレシート" hidden>🧾</button>
   <button class="gearbtn" id="gearBtn" title="設定">⚙</button>
   <button class="modebtn" id="modeBtn">返品</button>
@@ -461,6 +481,7 @@
         <span class="tot" id="cartTotal"><small>¥</small>0</span>
       </div>
       <button class="pay" id="payBtn" disabled>会計する</button>
+      <button class="holdbtn" id="holdBtn" disabled>取り置き</button>
       <button class="clear" id="clearBtn" style="display:none">カートを空にする</button>
     </div>
   </aside>
@@ -503,6 +524,33 @@
 
 <div class="toast" id="toast"></div>
 <div class="changecard" id="changeCard" hidden></div>
+
+<!-- 取り置き：登録フォーム -->
+<div class="overlay" id="holdFormOverlay">
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="peName">取り置き登録</div>
+    <div class="payrow sub"><span class="lb">点数・金額</span><span class="v" id="hfSummary">¥0</span></div>
+    <div class="hf">
+      <label>お名前 <span class="req">必須</span><input id="hfName" placeholder="山田"></label>
+      <label>電話番号<input id="hfPhone" type="tel" inputmode="tel" placeholder="090-xxxx-xxxx"></label>
+      <label>受渡予定<input id="hfDue" placeholder="本日16時ごろ など"></label>
+      <label>メモ<input id="hfMemo" placeholder="値引き済み・要冷蔵 など"></label>
+    </div>
+    <button class="confirm" id="hfSave">この内容で取り置き</button>
+    <button class="cancel" id="hfCancel">もどる</button>
+  </div>
+</div>
+
+<!-- 取り置き：一覧 -->
+<div class="overlay" id="holdsOverlay">
+  <div class="sheet rsheet">
+    <div class="grab"></div>
+    <div class="peName">取り置き一覧</div>
+    <div id="holdsList" class="holdslist">読み込み中…</div>
+    <button class="cancel" id="holdsClose">閉じる</button>
+  </div>
+</div>
 
 <!-- レシート／領収書 -->
 <div class="overlay" id="receiptOverlay">
@@ -681,6 +729,7 @@ async function init(){
   }
   flushQueue();
   scheduleFlush();
+  refreshHolds();
   window.addEventListener('online', function(){ updatePendChip(); flushQueue(); });
   window.addEventListener('offline', updatePendChip);
   try{ if(localStorage.getItem('reji_practice')==='1') setPractice(true); }catch(e){}
@@ -795,6 +844,9 @@ function renderCart(){
   payBtn.disabled=(ids.length===0);
   payBtn.textContent=RETURN?'返品する':'会計する';
   document.getElementById('cartTitle').textContent=RETURN?'返品カート':'カート';
+  const hb=document.getElementById('holdBtn');
+  hb.style.display=RETURN?'none':'block';
+  hb.disabled=(ids.length===0 || RETURN || PRACTICE);
   document.getElementById('clearBtn').style.display=ids.length?'block':'none';
 }
 
@@ -802,7 +854,7 @@ document.getElementById('clearBtn').onclick=clearCart;
 
 /* ===== 会計オーバーレイ ===== */
 const overlay=document.getElementById('overlay');
-document.getElementById('payBtn').onclick=openPay;
+document.getElementById('payBtn').onclick=function(){ pickupHoldId=null; openPay(); };
 document.getElementById('cancelBtn').onclick=closePay;
 
 function payTotal(){ const sub=cartTotal(); return sub-Math.min(discount,sub); }
@@ -815,7 +867,7 @@ function openPay(){
   updatePay();
   overlay.classList.add('on');
 }
-function closePay(){ overlay.classList.remove('on'); }
+function closePay(){ overlay.classList.remove('on'); pickupHoldId=null; }
 
 function setDiscActive(v){
   overlay.querySelectorAll('.discbtns button').forEach(function(x){
@@ -967,6 +1019,21 @@ document.getElementById('confirmBtn').onclick=function(){
     if(received>0 && received<total) return;
     const recv=received||total;
     const change=recv-total;
+    if(pickupHoldId){
+      // 取り置きの受け取り会計（在庫は確保済みなので二重に減らさない）
+      const hid=pickupHoldId; const btn=this;
+      btn.disabled=true; btn.textContent='送信中…';
+      jsonp('pickupHold',{holdId:hid,received:recv,discount:disc}).then(function(res){
+        if(!res.ok)throw new Error(res.error||'受け取り会計に失敗しました');
+        captureSale(items, disc, total, recv, change, false);
+        pickupHoldId=null; closePay(); clearCart(); renderGrid();
+        refreshHolds(); refreshSummary(); refreshProducts();
+        const dm=disc>0?('（値引 '+yen(disc)+'）'):'';
+        toast('受け取り会計 完了 '+yen(total)+dm+'<br><span class="big">お釣り '+yen(change)+'</span>');
+        showChangeCard(change);
+      }).catch(function(e){ toast('⚠ '+e.message); }).finally(function(){ btn.disabled=false; btn.textContent='会計を確定'; });
+      return;
+    }
     if(PRACTICE){
       applyEntryStock({kind:'sale',items:items}); pracSalesNet+=total;
       captureSale(items, disc, total, recv, change, true);
@@ -1346,6 +1413,93 @@ document.getElementById('closeBtn').onclick=async function(){
   }catch(e){ toast('⚠ '+e.message); }
   finally{ btn.disabled=false; }
 };
+
+/* ===== 取り置き ===== */
+let holdsCache=[], pickupHoldId=null;
+const holdFormOverlay=document.getElementById('holdFormOverlay');
+const holdsOverlay=document.getElementById('holdsOverlay');
+
+function updateHoldChip(){
+  const chip=document.getElementById('holdChip');
+  const n=holdsCache.length;
+  if(n>0){ chip.hidden=false; chip.textContent='取置 '+n+'件'; } else { chip.hidden=true; }
+}
+async function refreshHolds(){
+  try{ const r=await jsonp('getHolds'); if(r.ok){ holdsCache=r.holds||[]; updateHoldChip(); } }catch(e){}
+}
+
+/* 登録フォーム */
+document.getElementById('holdBtn').onclick=function(){
+  if(PRACTICE){ toast('練習モードでは取り置きは使えません'); return; }
+  if(!Object.keys(cart).length) return;
+  document.getElementById('hfSummary').textContent=cartCount()+'点 / '+yen(cartTotal());
+  ['hfName','hfPhone','hfDue','hfMemo'].forEach(id=>document.getElementById(id).value='');
+  holdFormOverlay.classList.add('on');
+};
+function cartCount(){ return Object.keys(cart).reduce((s,id)=>s+cart[id],0); }
+document.getElementById('hfCancel').onclick=function(){ holdFormOverlay.classList.remove('on'); };
+document.getElementById('hfSave').onclick=async function(){
+  const name=document.getElementById('hfName').value.trim();
+  if(!name){ toast('お名前を入力してください'); return; }
+  const items=Object.keys(cart).map(id=>({id:id,qty:cart[id],price:unitOf(id)}));
+  const btn=this; btn.disabled=true; btn.textContent='登録中…';
+  try{
+    const r=await jsonp('createHold',{items:JSON.stringify(items),name:name,
+      phone:document.getElementById('hfPhone').value.trim(),
+      due:document.getElementById('hfDue').value.trim(),
+      memo:document.getElementById('hfMemo').value.trim()});
+    if(!r.ok)throw new Error(r.error||'取り置きに失敗しました');
+    holdFormOverlay.classList.remove('on'); clearCart(); renderGrid();
+    await refreshHolds(); refreshProducts();
+    toast('取り置きしました（'+esc(name)+'様・'+yen(r.amount)+'）');
+  }catch(e){ toast('⚠ '+e.message); }
+  finally{ btn.disabled=false; btn.textContent='この内容で取り置き'; }
+};
+
+/* 一覧 */
+document.getElementById('holdChip').onclick=openHolds;
+document.getElementById('holdsClose').onclick=function(){ holdsOverlay.classList.remove('on'); };
+async function openHolds(){
+  holdsOverlay.classList.add('on');
+  const box=document.getElementById('holdsList'); box.innerHTML='読み込み中…';
+  await refreshHolds();
+  if(!holdsCache.length){ box.innerHTML='<div class="anote">取り置きはありません。</div>'; return; }
+  box.innerHTML='';
+  holdsCache.forEach(function(h){
+    const el=document.createElement('div'); el.className='hcard';
+    const itemsTxt=h.items.map(function(it){return esc(it.name)+'×'+it.qty;}).join('、');
+    const meta=[h.time.slice(5,16), h.phone, h.due].filter(Boolean).join('　');
+    el.innerHTML='<div class="hname">'+esc(h.name)+' 様</div>'
+      +'<div class="hmeta">'+esc(meta)+'</div>'
+      +'<div class="hitems">'+itemsTxt+'</div>'
+      +(h.memo?'<div class="hmeta">メモ：'+esc(h.memo)+'</div>':'')
+      +'<div class="hfoot"><span class="hamt">'+yen(h.amount)+'</span>'
+      +'<button class="hcancel">取消</button><button class="hpay">会計する</button></div>';
+    el.querySelector('.hpay').onclick=function(){ pickupStart(h); };
+    el.querySelector('.hcancel').onclick=function(){ cancelHold(h); };
+    box.appendChild(el);
+  });
+}
+
+/* 受け取り会計：カートに復元して通常の会計画面へ */
+function pickupStart(h){
+  clearCart();
+  h.items.forEach(function(it){ cart[it.id]=it.qty; special[it.id]=it.price; });
+  pickupHoldId=h.holdId;
+  clientId=h.holdId;                       // 冪等キー
+  holdsOverlay.classList.remove('on');
+  renderCart();
+  openPay();
+  toast(esc(h.name)+'様の取り置きを会計します');
+}
+async function cancelHold(h){
+  if(!window.confirm(esc(h.name)+'様の取り置きを取り消します。\n確保していた在庫は戻ります。よろしいですか？'))return;
+  try{
+    const r=await jsonp('cancelHold',{holdId:h.holdId}); if(!r.ok)throw new Error(r.error||'取消失敗');
+    await refreshHolds(); refreshProducts(); openHolds();
+    toast('取り置きを取り消しました');
+  }catch(e){ toast('⚠ '+e.message); }
+}
 
 /* ===== 本日の売上（サーバ確定＋未送信） ===== */
 async function refreshSummary(){
