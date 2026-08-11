@@ -351,11 +351,55 @@
 
   /* スマホ */
   @media(max-width:760px){
-    main{grid-template-columns:1fr; grid-template-rows:1fr auto;}
+    /* レイアウト：縦積み（商品→カート） */
+    main{grid-template-columns:1fr; grid-template-rows:minmax(0,1fr) auto;}
     .left{border-right:none;}
-    .cart{border-top:2px solid var(--ink); max-height:44dvh;}
-    .today .amt{font-size:18px;}
-    .brand h1{font-size:17px;}
+    .cart{border-top:2px solid var(--ink); max-height:42dvh;}
+
+    /* ヘッダをコンパクトに（縦折り返し防止） */
+    header{padding:8px 12px; gap:8px; flex-wrap:wrap;}
+    .brand{flex:1; min-width:0;}
+    .brand .eb{display:none;}
+    .brand h1{font-size:16px; white-space:nowrap;}
+    .today{padding:5px 10px; gap:6px; border-radius:10px; white-space:nowrap;}
+    .today .lb{font-size:10px;}
+    .today .amt{font-size:16px;}
+    .today .ct{display:none;}
+    .gearbtn{padding:8px 10px; font-size:15px;}
+    .pracbtn{padding:8px 10px; font-size:13px;}
+    .pendchip,.holdchip{padding:7px 9px; font-size:12px;}
+
+    /* タブ・商品グリッドを詰めて3列に */
+    .tabs{padding:8px 10px 2px; gap:6px;}
+    .tab{padding:9px 0; font-size:14px;}
+    .grid{padding:10px; gap:8px; grid-template-columns:repeat(auto-fill,minmax(104px,1fr));}
+    .pcard{min-height:auto; padding:9px 8px; gap:5px;}
+    .pcard .nm{font-size:13px;}
+    .pcard .pr{font-size:15px;}
+    .pcard .stk{font-size:11px;}
+    .pcard .soldb{font-size:10px; padding:2px 7px;}
+
+    /* カート */
+    .cart h2{padding:8px 12px 6px;}
+    .items{padding:4px 8px;}
+    .empty{padding:16px 12px;}
+    .item .inm{font-size:14px;}
+    .cart-foot{padding:8px 12px 10px;}
+    .pay{padding:14px; font-size:17px;}
+    .holdbtn{padding:12px; font-size:15px;}
+
+    /* 設定パネル（タブ折り返し・詰める） */
+    .abar{flex-wrap:wrap; padding:10px 12px; gap:8px;}
+    .abar .atitle{font-size:16px;}
+    .atabs{flex-wrap:wrap;}
+    .atabs button{padding:8px 12px; font-size:13px;}
+    .aclose{padding:8px 12px; font-size:13px;}
+    .apanel{padding:12px;}
+    .prow{gap:6px;}
+
+    /* 下から出るシートを全高で使いやすく */
+    .sheet{max-height:92dvh; overflow:auto;}
+    .changecard{top:60px;}
   }
   @media (prefers-reduced-motion:reduce){*{transition:none!important;}}
 </style>
